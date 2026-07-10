@@ -6,94 +6,87 @@
 
 ---
 
-## Phase 0 — Foundation
+## ✅ Phase 0 — Foundation *(complete)*
 *Goal: A working canvas with a camera, a terrain, and a basic build pipeline.*
 
 ### Project Setup
-- [ ] Initialise Vite + TypeScript project
-- [ ] Install and configure Babylon.js 9
-- [ ] Set up Svelte 5 as UI overlay with vite-plugin-svelte
-- [ ] Configure `tsconfig.json` with strict mode
-- [ ] Set up path aliases (`@world`, `@sim`, `@ui`, etc.)
-- [ ] Add tweakpane for dev parameter controls
-- [ ] Set up basic `index.html` with canvas + Svelte mount point
-- [ ] Create `SceneManager.ts` — engine init, scene, WebGPU/WebGL2 selection
+- [x] Initialise Vite + TypeScript project
+- [x] Install and configure Babylon.js 9
+- [x] Set up Svelte 5 as UI overlay with vite-plugin-svelte
+- [x] Configure `tsconfig.json` with strict mode
+- [x] Set up path aliases (`@world`, `@sim`, `@ui`, etc.)
+- [x] Add tweakpane for dev parameter controls
+- [x] Set up basic `index.html` with canvas + Svelte mount point
+- [x] Create `SceneManager.ts` — engine init, scene, WebGPU/WebGL2 selection
 
 ### Camera
-- [ ] Implement `IsometricCamera.ts` — arc-rotate with constrained angle
-- [ ] Mouse scroll zoom (smooth, clamped)
-- [ ] Middle-click drag pan
-- [ ] Q/E rotation snapping to 45° increments
-- [ ] Home key to reset view
-- [ ] Touch gesture support (pinch zoom, two-finger pan)
+- [x] Implement `IsometricCamera.ts` — arc-rotate with constrained angle
+- [x] Mouse scroll zoom (smooth, clamped)
+- [x] Middle-click drag pan
+- [x] Q/E rotation snapping to 45° increments
+- [x] Home key to reset view
+- [x] Touch gesture support (pinch zoom, two-finger pan)
 
 ### Render Loop
-- [ ] `RenderLoop.ts` with RAF loop
-- [ ] Delta time tracking
-- [ ] Basic performance monitor overlay (FPS, draw calls)
+- [x] `RenderLoop.ts` with RAF loop
+- [x] Delta time tracking
+- [x] Basic performance monitor overlay (FPS, draw calls)
 
-### Deliverable: A working camera that can orbit a placeholder scene
-
-### Phase 0 Tests
-- [ ] `vitest` — `SceneManager` creates engine and scene without throwing (NullEngine)
-- [ ] `vitest` — `IsometricCamera` alpha/beta/radius stay within defined bounds after clamping
-- [ ] `vitest` — `RenderLoop` reports positive delta time on first tick
-- [ ] `vitest` — Path aliases resolve correctly (import `@engine/SceneManager`)
-- [ ] Manual: `npm run dev` opens in browser, placeholder box visible, camera orbits on drag
+### ✅ Phase 0 Tests — 16/16 passing
 
 ---
 
-## Phase 1 — World Generation
+## ✅ Phase 1 — World Generation *(complete)*
 *Goal: A generated terrain with roads, parcels, and placeholder buildings you can explore.*
 
-### Terrain
-- [ ] Simplex noise heightmap generation (simplex-noise library)
-- [ ] Domain warping layer for organic variation
-- [ ] Valley floor carving (low-point attraction)
-- [ ] Mesh generation from heightmap using Babylon.js `VertexData`
-- [ ] Material splat system (grass, rock, moorland zones by height/slope)
-- [ ] Terrain parameter exposure via tweakpane (seed, valley width, hilliness)
+> **Terrain design note (post-phase revision):** The initial Phase 1 implementation used a full
+> heightmap with varying Y altitudes. This was revised in `fix/flat-terrain` — see below.
+> The heightmap is **retained for zone logic** (road routing, river tracing, colour splat zones)
+> but the visual mesh is **flat** (Y = 0). All buildings, roads, and trees sit on a flat plane.
+> This suits the isometric camera and removes a whole class of alignment complexity.
 
-### Water
-- [ ] River channel carving from flow simulation
-- [ ] River mesh generation (flat plane, follows carved channel)
-- [ ] Animated water shader (normal map scroll + Fresnel reflection)
-- [ ] Pond/lake generation in valley floor depressions
-- [ ] Sea/coast plane (if coastal parameter enabled)
+### Core systems built
+- [x] `TerrainGenerator.ts` — seeded FBM noise + domain warp + valley profile (heightmap for logic)
+- [x] `TerrainMesh.ts` — flat ground mesh with height-zone vertex colour splat
+- [x] `RiverSystem.ts` — valley floor trace; river path used for mesh + road avoidance
+- [x] `WaterBodies.ts` — ribbon mesh along river, translucent blue-grey material
+- [x] `RoadNetwork.ts` — binary heap Dijkstra A* on heightmap cost + side streets
+- [x] `Parcel.ts` — building slot strips on both sides of every road edge
+- [x] `BuildingPlacer.ts` — instanced colour-coded placeholder boxes
+- [x] `VegetationPlacer.ts` — cone-tree instances by height zone
+- [x] `WorldGenerator.ts` — orchestrator; tweakpane seed/valley/hilliness/trees/⟳ Regenerate
+- [x] `Seeder.ts` — mulberry32 PRNG for reproducible generation
 
-### Road Network
-- [ ] Main road: optimal valley path generation (A* on heightmap cost)
-- [ ] High street segment identification
-- [ ] Side street branching (probabilistic, contour-following)
-- [ ] Parcel generation from road graph (polygon subdivision)
-- [ ] Road mesh generation (flat with markings texture)
-- [ ] Pavement/kerb geometry
+### ✅ Phase 1 Tests — 33/33 passing
 
-### Buildings (Placeholder)
-- [ ] Parcel zoning assignment (residential, commercial, civic, green)
-- [ ] Placeholder box meshes at parcel positions with type colour coding
-- [ ] Basic instancing for repeated building mesh types
+---
 
-### Vegetation
-- [ ] Instanced tree placement (density by terrain zone)
-- [ ] Hedge/boundary geometry along parcel edges
-- [ ] Grass tuft instancing on rough terrain
+## fix/flat-terrain — Terrain Visual Rework *(next)*
+*Goal: Replace variable-height terrain mesh with a flat plane. Visual interest comes from
+colour zones and objects, not altitude. Suits the isometric camera perfectly.*
 
-### World Parameters (tweakpane)
-- [ ] Seed input + regenerate button
-- [ ] Valley width, hilliness, coastal toggle
-- [ ] Population target (affects building density)
-- [ ] Regenerate updates scene in < 5 seconds
+### Why flat terrain?
+- Variable altitude terrain does not translate well to isometric view at normal zoom levels
+- Buildings sitting at different elevations cause alignment complexity
+- Roads over hills require complex mesh work for minimal visual payoff
+- The British village aesthetic is **gently rolling**, not mountainous — the sensation
+  of landscape comes from textures, hedges, field boundaries, and light, not polygon height
 
-### Deliverable: A convincing procedural British valley with roads and rough building footprints
+### What changes
+- [ ] `TerrainMesh.ts` — all Y vertices = 0; heightmap data used only for vertex colour zones
+- [ ] `RiverSystem.ts` — river Y = 0 (tiny offset 0.02 to avoid z-fighting)
+- [ ] `WorldGenerator.ts` — roads and buildings always placed at Y = 0
+- [ ] `BuildingPlacer.ts` — remove terrain height sampling; all at Y = 0
+- [ ] `VegetationPlacer.ts` — all trees at Y = 0
 
-### Phase 1 Tests
-- [ ] `vitest` — `TerrainGenerator` heightmap values stay within `[0, 1]` for any seed
-- [ ] `vitest` — `TerrainGenerator` valley floor (centre column) is the lowest region
-- [ ] `vitest` — `RoadNetwork` graph is fully connected (all nodes reachable from main road start)
-- [ ] `vitest` — Parcel polygons have no overlapping area
-- [ ] `vitest` — World generation completes in < 5000ms (perf assertion)
-- [ ] Manual: terrain has visible valley, river, roads, and colour-coded parcel boxes
+### What stays the same
+- `TerrainGenerator.ts` — unchanged; heightmap still drives zone classification + road routing
+- `RoadNetwork.ts` — unchanged; A* cost still uses height as a proxy for "valley preference"
+- All tests — logic tests pass unchanged since heightmap logic is untouched
+
+### Deliverable
+A flat, colour-zoned world where the valley shape is expressed through colour gradients
+and object placement rather than geometry altitude.
 
 ---
 
