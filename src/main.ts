@@ -4,6 +4,7 @@ import { SceneManager } from '@engine/SceneManager'
 import { RenderLoop } from '@engine/RenderLoop'
 import { IsometricCamera } from '@camera/IsometricCamera'
 import { MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core'
+import { Pane } from 'tweakpane'
 
 // ── UI overlay ────────────────────────────────────────────────────────────────
 mount(App, { target: document.getElementById('ui-root')! })
@@ -32,6 +33,24 @@ async function bootstrap(): Promise<void> {
   // ── Render loop ─────────────────────────────────────────────────────────────
   const renderLoop = new RenderLoop(sceneManager.engine, scene)
   renderLoop.start()
+
+  // ── Dev performance monitor (only in development) ──────────────────────────
+  if (import.meta.env.DEV) {
+    const pane = new Pane({ title: 'Hiraeth Dev', expanded: true })
+    const stats = { fps: 0, deltaMs: 0, drawCalls: 0 }
+    const fpsBlades = pane.addBinding(stats, 'fps', { readonly: true, label: 'FPS' })
+    const dtBlade = pane.addBinding(stats, 'deltaMs', { readonly: true, label: 'δ ms' })
+    const dcBlade = pane.addBinding(stats, 'drawCalls', { readonly: true, label: 'Draw calls' })
+
+    renderLoop.onStats(s => {
+      stats.fps = s.fps
+      stats.deltaMs = s.deltaMs
+      stats.drawCalls = s.drawCalls
+      fpsBlades.refresh()
+      dtBlade.refresh()
+      dcBlade.refresh()
+    })
+  }
 
   // Resize engine when window resizes
   window.addEventListener('resize', () => sceneManager.resize())
