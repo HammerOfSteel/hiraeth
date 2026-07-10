@@ -137,26 +137,32 @@ export class BuildingPlacer {
       const bd = p.depth  * 0.74
       const ry = p.angle
 
+      // "Law of Entropy" (Gemini): nothing in a real town is perfectly placed.
+      // Add a tiny, seeded positional jitter and a slight extra rotation.
+      const jx   = (this._rng() - 0.5) * 0.8
+      const jz   = (this._rng() - 0.5) * 0.8
+      const jRot = (this._rng() - 0.5) * 0.06   // ≈ ±3°
+
       // ── Body ──────────────────────────────────────────────────────────────
       const body = wallTpl.createInstance(`body_${p.id}`)
-      body.scaling   = new Vector3(bw, h, bd)
-      body.position  = new Vector3(p.cx, h / 2, p.cz)
-      body.rotation.y = ry
+      body.scaling    = new Vector3(bw, h, bd)
+      body.position   = new Vector3(p.cx + jx, h / 2, p.cz + jz)
+      body.rotation.y = ry + jRot
       meshes.push(body)
 
       // ── Roof (slight overhang, flat for now) ──────────────────────────────
       if (p.zone !== 'green') {
         const roofH = 0.35 + this._rng() * 0.25
         const roof = roofTpl.createInstance(`roof_${p.id}`)
-        roof.scaling   = new Vector3(bw + 0.6, roofH, bd + 0.6)
-        roof.position  = new Vector3(p.cx, h + roofH / 2, p.cz)
-        roof.rotation.y = ry
+        roof.scaling    = new Vector3(bw + 0.6, roofH, bd + 0.6)
+        roof.position   = new Vector3(p.cx + jx, h + roofH / 2, p.cz + jz)
+        roof.rotation.y = ry + jRot
         meshes.push(roof)
       }
 
       // ── Windows (skip green / very small buildings) ───────────────────────
       if (p.zone !== 'green' && bw > 4 && h > 3) {
-        this._addWindows(p.id, p.cx, p.cz, bw, bd, h, ry, meshes)
+        this._addWindows(p.id, p.cx + jx, p.cz + jz, bw, bd, h, ry + jRot, meshes)
       }
     }
 

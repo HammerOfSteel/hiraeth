@@ -84,14 +84,34 @@ export class SceneManager {
   private static _buildScene(engine: AbstractEngine): Scene {
     const scene = new Scene(engine)
 
+    // ── Sky colour ─────────────────────────────────────────────────────────
     // Overcast British sky — soft blue-grey, not navy
     scene.clearColor = new Color4(0.56, 0.70, 0.78, 1.0)
 
-    // Ambient sky light: cool blue-white from above, warm reflected ground colour
+    // ── Atmospheric fog ────────────────────────────────────────────────────
+    // Gentle valley haze: pools in the distance, frames the town as a
+    // "protected pocket" (Gemini: volumetric fog for the Welsh valley feel).
+    scene.fogMode    = Scene.FOGMODE_EXP2
+    scene.fogColor   = new Color3(0.60, 0.72, 0.80)   // slightly lighter than sky
+    scene.fogDensity = 0.006                           // subtle — shows at ~80+ units
+
+    // ── Ambient light ──────────────────────────────────────────────────────
+    // Cool sky-light from above; warm ground-bounce for natural fill.
     const ambient = new HemisphericLight('ambientLight', new Vector3(0, 1, 0), scene)
-    ambient.intensity    = 0.65
-    ambient.diffuse      = new Color3(0.90, 0.93, 1.00)   // pale sky
-    ambient.groundColor  = new Color3(0.38, 0.42, 0.30)   // warm ground bounce
+    ambient.intensity   = 0.65
+    ambient.diffuse     = new Color3(0.90, 0.93, 1.00)
+    ambient.groundColor = new Color3(0.38, 0.42, 0.30)
+
+    // ── Painterly post-processing ──────────────────────────────────────────
+    // Flatten contrast slightly and add a vignette so the scene reads like a
+    // diorama / model railway (Gemini: "diorama approach", "painterly shader").
+    const ipc = scene.imageProcessingConfiguration
+    ipc.isEnabled       = true
+    ipc.contrast        = 0.90    // flatter = softer, matte look
+    ipc.exposure        = 1.06    // fractionally warm/bright
+    ipc.vignetteEnabled = true
+    ipc.vignetteWeight  = 2.8     // strength of the darkening at edges
+    ipc.vignetteBlendMode = 0     // Multiply — feels natural, not flat overlay
 
     return scene
   }
