@@ -68,7 +68,8 @@ export class TerrainMesh {
     vd.applyToMesh(mesh)
 
     const mat = new StandardMaterial('terrainMat', scene)
-    mat.vertexColorsEnabled = true
+    // vertexColorsEnabled is handled automatically by Babylon.js 9 when colors
+    // are present in the VertexData — no explicit opt-in needed.
     mat.specularColor = new Color3(0.04, 0.04, 0.04)
     mesh.material = mat
 

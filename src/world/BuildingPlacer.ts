@@ -1,4 +1,5 @@
 import {
+  type AbstractMesh,
   Mesh,
   MeshBuilder,
   Scene,
@@ -47,8 +48,8 @@ export class BuildingPlacer {
     }
   }
 
-  place(parcels: Parcel[], heightmap: Heightmap): Mesh[] {
-    const meshes: Mesh[] = []
+  place(parcels: Parcel[], heightmap: Heightmap): AbstractMesh[] {
+    const meshes: AbstractMesh[] = []
     for (const p of parcels) {
       const tpl = this._templates.get(p.zone)
       if (!tpl) continue

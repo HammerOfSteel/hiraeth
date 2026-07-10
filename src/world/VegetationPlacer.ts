@@ -1,4 +1,5 @@
 import {
+  type AbstractMesh,
   Mesh,
   MeshBuilder,
   Scene,
@@ -45,11 +46,11 @@ export class VegetationPlacer {
     this._canopyTpl.isVisible = false
   }
 
-  place(heightmap: Heightmap, cfg: VegConfig): Mesh[] {
+  place(heightmap: Heightmap, cfg: VegConfig): AbstractMesh[] {
     const { data, width, depth, config } = heightmap
     const { worldWidth, worldDepth, maxHeight } = config
     const rng = mulberry32(cfg.seed ^ 0x76543210)
-    const meshes: Mesh[] = []
+    const meshes: AbstractMesh[] = []
     let count = 0
     const step = 4  // sample every 4th cell
 

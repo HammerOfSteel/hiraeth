@@ -133,7 +133,7 @@ function findPath(
   while (k !== startKey) {
     path.push([k % width, Math.floor(k / width)])
     const p = parent[k]
-    if (p < 0) return null
+    if (p === undefined || p < 0) return null
     k = p
   }
   path.push([sx, sz])
