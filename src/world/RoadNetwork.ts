@@ -203,15 +203,33 @@ export class RoadNetwork {
         const len = sideLen + Math.floor((rng() - 0.5) * 6)
         const streetIds: number[] = [mainIds[i]!]
         let curX = mainNode.gx
+        // Organic Z drift: side streets gently meander rather than going
+        // perfectly horizontal — gives a more natural village feel.
+        let curZ = mainNode.gz
 
         for (let s = 1; s <= len; s++) {
           const nx = curX + dir
           if (nx < 2 || nx >= width - 2) break
-          const { wx, wz } = toWorld(nx, mainNode.gz)
+
+          // Every ~5 steps, there's a 40 % chance of drifting ±1 cell in Z
+          // Keep drift gentle (max ±4 cells total from start)
+          let nz = curZ
+          const driftFromStart = Math.abs(curZ - mainNode.gz)
+          if (s % 5 === 0 && rng() < 0.4) {
+            const sign = rng() < 0.5 ? 1 : -1
+            // Bias back toward start-Z if we've drifted far
+            const biasedSign = driftFromStart >= 4
+              ? (curZ > mainNode.gz ? -1 : 1)
+              : sign
+            nz = Math.max(2, Math.min(depth - 3, curZ + biasedSign))
+          }
+
+          const { wx, wz } = toWorld(nx, nz)
           const id = nextId++
-          nodes.push({ id, gx: nx, gz: mainNode.gz, wx, wz, isMainRoad: false })
+          nodes.push({ id, gx: nx, gz: nz, wx, wz, isMainRoad: false })
           streetIds.push(id)
           curX = nx
+          curZ = nz
         }
 
         for (let j = 0; j < streetIds.length - 1; j++) {
