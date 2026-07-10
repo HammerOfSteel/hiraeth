@@ -10,27 +10,27 @@
 *Goal: A working canvas with a camera, a terrain, and a basic build pipeline.*
 
 ### Project Setup
-- [x] Initialise Vite + TypeScript project
-- [x] Install and configure Babylon.js 9
-- [x] Set up Svelte 5 as UI overlay with vite-plugin-svelte
-- [x] Configure `tsconfig.json` with strict mode
-- [x] Set up path aliases (`@world`, `@sim`, `@ui`, etc.)
-- [x] Add tweakpane for dev parameter controls
-- [x] Set up basic `index.html` with canvas + Svelte mount point
-- [x] Create `SceneManager.ts` — engine init, scene, WebGPU/WebGL2 selection
+- [] Initialise Vite + TypeScript project
+- [] Install and configure Babylon.js 9
+- [] Set up Svelte 5 as UI overlay with vite-plugin-svelte
+- [] Configure `tsconfig.json` with strict mode
+- [] Set up path aliases (`@world`, `@sim`, `@ui`, etc.)
+- [] Add tweakpane for dev parameter controls
+- [] Set up basic `index.html` with canvas + Svelte mount point
+- [] Create `SceneManager.ts` — engine init, scene, WebGPU/WebGL2 selection
 
 ### Camera
-- [x] Implement `IsometricCamera.ts` — arc-rotate with constrained angle
-- [x] Mouse scroll zoom (smooth, clamped)
-- [x] Middle-click drag pan
-- [x] Q/E rotation snapping to 45° increments
-- [x] Home key to reset view
-- [x] Touch gesture support (pinch zoom, two-finger pan)
+- [] Implement `IsometricCamera.ts` — arc-rotate with constrained angle
+- [] Mouse scroll zoom (smooth, clamped)
+- [] Middle-click drag pan
+- [] Q/E rotation snapping to 45° increments
+- [] Home key to reset view
+- [] Touch gesture support (pinch zoom, two-finger pan)
 
 ### Render Loop
-- [x] `RenderLoop.ts` with RAF loop
-- [x] Delta time tracking
-- [x] Basic performance monitor overlay (FPS, draw calls)
+- [] `RenderLoop.ts` with RAF loop
+- [] Delta time tracking
+- [] Basic performance monitor overlay (FPS, draw calls)
 
 ### ✅ Phase 0 Tests — 16/16 passing
 
