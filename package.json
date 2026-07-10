@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@babylonjs/core": "^9.0.0",
+    "simplex-noise": "^4.0.3",
     "svelte": "^5.0.0",
     "tweakpane": "^4.0.0"
   },
