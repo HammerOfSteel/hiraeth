@@ -36,57 +36,160 @@
 
 ---
 
-## ✅ Phase 1 — World Generation *(complete)*
-*Goal: A generated terrain with roads, parcels, and placeholder buildings you can explore.*
+## 🔄 Phase 0.5 — Visual Foundation *(current focus)*
+*Goal: Before anything else, the world must look and feel right — cozy, warm, and alive.
+Nothing proceeds until looking at the scene for 60 seconds produces the feeling of hiraeth.
+This phase is about building the visual vocabulary and asset language of the game.*
 
-> **Terrain design note (post-phase revision):** The initial Phase 1 implementation used a full
-> heightmap with varying Y altitudes. This was revised in `fix/flat-terrain` — see below.
-> The heightmap is **retained for zone logic** (road routing, river tracing, colour splat zones)
-> but the visual mesh is **flat** (Y = 0). All buildings, roads, and trees sit on a flat plane.
-> This suits the isometric camera and removes a whole class of alignment complexity.
+> **Why this phase exists:** Early prototyping produced a functional but lifeless world — grey
+> flat plane, scaled boxes, cone trees, perfectly straight roads. The aesthetic didn't match
+> the emotional promise of the game. Phase 0.5 rebuilds the visual layer from first principles,
+> establishing each asset type properly before world generation is built on top of it.
 
-### Core systems built
-- [x] `TerrainGenerator.ts` — seeded FBM noise + domain warp + valley profile (heightmap for logic)
-- [x] `TerrainMesh.ts` — flat ground mesh with height-zone vertex colour splat
-- [x] `RiverSystem.ts` — valley floor trace; river path used for mesh + road avoidance
-- [x] `WaterBodies.ts` — ribbon mesh along river, translucent blue-grey material
-- [x] `RoadNetwork.ts` — binary heap Dijkstra A* on heightmap cost + side streets
-- [x] `Parcel.ts` — building slot strips on both sides of every road edge
-- [x] `BuildingPlacer.ts` — instanced colour-coded placeholder boxes
-- [x] `VegetationPlacer.ts` — cone-tree instances by height zone
-- [x] `WorldGenerator.ts` — orchestrator; tweakpane seed/valley/hilliness/trees/⟳ Regenerate
-- [x] `Seeder.ts` — mulberry32 PRNG for reproducible generation
+### 0.5.1 — Tech Stack Confirmation & Rendering Pipeline
+*Confirm Babylon.js is the right choice and enable the full render quality it supports.*
+- [ ] Research: evaluate Three.js vs Babylon.js vs custom WebGPU for this use case
+- [ ] Confirm or revise engine decision — document reasoning in `tech.md`
+- [ ] Enable `DefaultRenderingPipeline` with SSAO2, DOF, bloom, chromatic aberration
+- [ ] Implement `ShadowGenerator` on directional sun light — all objects cast + receive shadows
+- [ ] Switch buildings to `PBRMaterial` (physically-based) instead of `StandardMaterial`
+- [ ] Implement warm overcast sky using `SkyMaterial` or CubeTexture skybox
+- [ ] Validate: scene at golden hour should feel warm and inviting, not clinical
 
-### ✅ Phase 1 Tests — 33/33 passing
+### 0.5.2 — Building Component System
+*Buildings are composed of parts — not scaled boxes. Each part is a reusable mesh component.*
+- [ ] Design `BuildingBlueprint` data structure: type, floors, width, depth, roof style, wall material, age
+- [ ] Design `BuildingComponent` system: wall panel, window, door, roof, chimney, foundation
+- [ ] `WallPanel.ts` — flat quad with UV; supports procedural brick/stone/render texture
+- [ ] `WindowComponent.ts` — frame mesh + glass pane; emissive at night; curtain variation
+- [ ] `DoorComponent.ts` — door frame + door leaf; colour variation per building
+- [ ] `RoofMesh.ts` — pitched, hipped, mansard, flat; generates correct geometry per blueprint
+- [ ] `ChimneyStack.ts` — rectangular stack with pot detail; 0–3 per residential roof
+- [ ] `FoundationPlinth.ts` — low base course, slightly wider than walls, stone material
+- [ ] `BuildingFactory.ts` — assembles components from blueprint; returns merged mesh
+
+### 0.5.3 — Building Type Library
+*A set of recognisable British building types generated from the component system.*
+- [ ] **Cottage** — 1 storey, low pitched roof, thick walls, small windows, chimney, front door offset
+- [ ] **Terraced house** — 2 storey, shared side walls, sash windows, chimney stacks, small front garden
+- [ ] **Semi-detached** — 2 storey, paired plan, bay window on ground floor, small side passage
+- [ ] **Detached house** — 2 storey, larger footprint, garage or side extension
+- [ ] **Bungalow** — 1 storey + dormer windows, wide plan, larger rear garden
+- [ ] **Shop / high-street unit** — 1–2 storey, wide display window, flat or parapet roof, fascia sign space
+- [ ] **Pub** — 2 storey, large ground-floor windows, hanging sign bracket, beer garden terrace
+- [ ] **Church** — nave + aisle, pitched roof, tower or bellcote, arched windows, churchyard wall
+- [ ] **Civic building** — 2–3 storey, symmetrical facade, larger windows, shallow steps at entrance
+- [ ] **Apartment block** — 3–5 storey, regular window grid, flat roof, communal entrance
+- [ ] Each type: 3 material/age variants (new-build, established, aged) for visual diversity
+
+### 0.5.4 — Building Life: Windows & Interior Glow
+*Buildings must feel inhabited, not rendered.*
+- [ ] Day glass: dark material with subtle specular — windows look like real glass
+- [ ] Dusk/night: emissive warm orange/yellow per window — driven by time-of-day + occupancy
+- [ ] `WindowLightManager.ts` — schedules per building; not all lights on at same time
+- [ ] Curtain geometry (lace, venetian, blackout) — variation per building age/type
+- [ ] Interior depth illusion: very shallow dark box behind glass gives depth feeling
+
+### 0.5.5 — Ground & Terrain Surface
+*The ground is not a grey plane. It is grass, stone, soil, gravel.*
+- [ ] Procedural grass texture (canvas-based) — warm mid-green, not vivid
+- [ ] Procedural pavement/path material — tarmac or stone flags near roads
+- [ ] Procedural garden soil — for front/rear garden zones
+- [ ] Field boundary hedges — row of low mesh hedges separating plots and roads
+- [ ] Grass variation: lighter patches, worn trackways between buildings
+- [ ] Ground vertex colour zones refined: valley floor green, hillside warm brown, moorland grey-green
+
+### 0.5.6 — Town & Street Assets
+*The detail layer that makes a place feel real.*
+- [ ] **Trees V2**: hemisphere canopy + tapered trunk; 4 species variants (oak, ash, birch, conifer); seasonal colour params
+- [ ] **Hedgerow**: repeating low box with rough-top profile; planted along plot boundaries
+- [ ] **Garden wall**: low brick wall section; modular tiles, corner pieces
+- [ ] **Street lamp**: cast-iron Victorian post + lantern head; emissive glow at night
+- [ ] **Post box**: cylindrical red box on short post; GR or EIIR cypher detail
+- [ ] **Bench**: two plank boards + four legs; near bus stops, parks, high street
+- [ ] **Bus shelter**: flat roof + three acrylic panels; illuminated timetable panel
+- [ ] **Bins**: wheelie bin pair (black + recycling blue) at residential plot edges
+- [ ] **Garden gate**: wooden picket or iron bar; at front garden boundary
+- [ ] **Park**: grass area + path + bench cluster + flower beds + maybe a pond
+- [ ] **Playground**: within park area; swings frame + slide + roundabout geometry
+- [ ] **Car park**: marked bays (road-paint lines) + kerb stones + dropped kerb
+- [ ] **Phone box**: classic K6 red box; rare placement, high-street or village green
+- [ ] All assets: scale-appropriate, material-consistent, no floating or clipping
+
+### 0.5.7 — Road System V2
+*Roads that look like roads: curved, textured, with pavements and markings.*
+- [ ] Spline-based road generation using Babylon.js `Curve3` (Catmull-Rom through waypoints)
+- [ ] `RoadMesh.ts` — ribbon mesh along spline; separate left/right pavement strips
+- [ ] Road surface procedural texture: tarmac grey with slight aggregate variation
+- [ ] Road markings: centre line, edge line (canvas texture on UV-mapped road mesh)
+- [ ] Junction geometry: intersection fill mesh at road crossings
+- [ ] Dropped kerbs at pedestrian crossings
+- [ ] Pavements / footpaths: lighter stone-coloured flat strip beside road
+- [ ] Road types: main road (wider), side street (narrower), lane/track (narrowest, unsealed)
+- [ ] Gentle curves everywhere — no perfectly straight road segments except motorway (out of scope)
+
+### 0.5.8 — Vehicles (Visual Pass)
+*Vehicles exist as visible objects — behaviour comes in Phase 4+.*
+- [ ] Base `VehicleMesh.ts` component system: body shell + wheels + windows + lights
+- [ ] **Car** — saloon / hatchback / estate; 5 colour variants; procedural wheel rim detail
+- [ ] **Van** — transit-style; white; ladders/gear on roof optional
+- [ ] **Bus** — double-decker; red or local-authority cream; destination blind
+- [ ] **Bike** — bicycle frame + wheels; leaned against walls or ridden
+- [ ] Parked cars placed in car parks and along roadside verges
+- [ ] Headlights: emissive white; tail lights: emissive red — toggled by time of day
+- [ ] No movement yet — placed as static scene props this phase
+
+### 0.5.9 — Character Visual Design
+*Characters that look like people, not coloured capsules.*
+- [ ] Design character mesh vocabulary: head, torso, legs, feet, hands
+- [ ] `CharacterMesh.ts` — low-poly humanoid (~400–600 tris); modular clothing layers
+- [ ] Body type variation: height, build (slim/average/stocky) via bone scaling
+- [ ] Skin tone palette (10 values, warm through cool)
+- [ ] Hair: 6 silhouette styles (short, medium, long, bald, bun, cap); colour variation
+- [ ] Clothing layers: top, trousers/skirt, coat, shoes — colour parameterised
+- [ ] Age markers: greyer hair, slightly more hunched posture for elderly
+- [ ] `CharacterPaletteGenerator.ts` — generates a visually distinct person from seed
+- [ ] Walk cycle: procedural sine-wave limb animation (no keyframes required)
+- [ ] Characters cast shadows; readable silhouette at isometric zoom
+
+### Phase 0.5 Deliverable
+> Pan across a generated scene. You see:
+> a village green with a proper church on one side and a pub on the other,
+> brick terraced houses with lit windows at dusk, a person walking past,
+> a red post box on the corner, a bus shelter with a timetable,
+> roads that gently curve between hedgerows and garden walls.
+> You feel warmth. You feel like somewhere real exists here.
+
+### Phase 0.5 Tests
+- [ ] Visual: 60-second look test — scene must feel warm, inhabited, and specific
+- [ ] `vitest` — `BuildingFactory` with cottage blueprint produces mesh taller than it is wide
+- [ ] `vitest` — `WindowLightManager` returns `emissive=true` for residential at hour=20
+- [ ] `vitest` — `WindowLightManager` returns `emissive=false` at hour=03 for all building types
+- [ ] `vitest` — `RoadMesh` spline has length > 0 for any two non-identical waypoints
+- [ ] `vitest` — `CharacterPaletteGenerator` returns unique palette for 100 consecutive seeds
+- [ ] `vitest` — No two parked vehicles overlap given a standard car-park layout
 
 ---
 
-## fix/flat-terrain — Terrain Visual Rework *(next)*
-*Goal: Replace variable-height terrain mesh with a flat plane. Visual interest comes from
-colour zones and objects, not altitude. Suits the isometric camera perfectly.*
+## ✅ Phase 1 — World Generation *(complete — to be rebuilt on Phase 0.5 assets)*
+*Procedural world skeleton exists and tests pass. The generator will be rewired
+once Phase 0.5 establishes real building meshes, curved roads, and ground materials.
+Visual output is placeholder boxes and cones — that is intentional at this stage.*
 
-### Why flat terrain?
-- Variable altitude terrain does not translate well to isometric view at normal zoom levels
-- Buildings sitting at different elevations cause alignment complexity
-- Roads over hills require complex mesh work for minimal visual payoff
-- The British village aesthetic is **gently rolling**, not mountainous — the sensation
-  of landscape comes from textures, hedges, field boundaries, and light, not polygon height
+### Core systems built
+- [x] `TerrainGenerator.ts` — seeded FBM noise + domain warp + valley profile (heightmap for logic only)
+- [x] `TerrainMesh.ts` — flat ground mesh with height-zone vertex colour splat
+- [x] `RiverSystem.ts` — valley floor trace; river path used for mesh + road avoidance
+- [x] `WaterBodies.ts` — ribbon mesh along river, translucent blue-grey material
+- [x] `RoadNetwork.ts` — binary heap Dijkstra A* on heightmap cost + organic side streets
+- [x] `Parcel.ts` — building slot placement with overlap detection, setback, zone variety
+- [x] `BuildingPlacer.ts` — instanced placeholder boxes with roofs + colour variants (temporary)
+- [x] `VegetationPlacer.ts` — cone-tree instances by height zone (temporary)
+- [x] `WorldGenerator.ts` — orchestrator; settlement type selector; tweakpane controls
+- [x] `SettlementLayout.ts` — valley town, linear village, hamlet, nucleated village layouts
+- [x] `Seeder.ts` — mulberry32 PRNG for reproducible generation
 
-### What changes
-- [ ] `TerrainMesh.ts` — all Y vertices = 0; heightmap data used only for vertex colour zones
-- [ ] `RiverSystem.ts` — river Y = 0 (tiny offset 0.02 to avoid z-fighting)
-- [ ] `WorldGenerator.ts` — roads and buildings always placed at Y = 0
-- [ ] `BuildingPlacer.ts` — remove terrain height sampling; all at Y = 0
-- [ ] `VegetationPlacer.ts` — all trees at Y = 0
-
-### What stays the same
-- `TerrainGenerator.ts` — unchanged; heightmap still drives zone classification + road routing
-- `RoadNetwork.ts` — unchanged; A* cost still uses height as a proxy for "valley preference"
-- All tests — logic tests pass unchanged since heightmap logic is untouched
-
-### Deliverable
-A flat, colour-zoned world where the valley shape is expressed through colour gradients
-and object placement rather than geometry altitude.
+### ✅ Phase 1 Tests — 33/33 passing
 
 ---
 

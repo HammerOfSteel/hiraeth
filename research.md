@@ -4,6 +4,71 @@ A living document. Add to this as the project develops.
 
 ---
 
+## Tech Stack Research — Rendering Engine
+
+### Why Babylon.js (confirmed choice)
+
+Evaluated against Three.js, custom WebGPU, PlayCanvas, and Godot HTML5 export.
+
+**Three.js**: Nearly identical capability to Babylon.js for this use case — same WebGL/WebGPU
+abstraction, similar PBR materials. Babylon.js wins on: built-in nav mesh (Recast), skeletal
+animation retargeting, physically-based atmosphere shader, and clustered lighting — all needed
+later. Three.js would require bolt-ons for all of these.
+
+**Custom WebGPU**: Maximum control, compute shaders for crowd simulation. Viable long-term but
+adds 6–12 months of renderer development before any game content. Revisit post-ship.
+
+**PlayCanvas / Godot HTML5**: Both require GUI editors — violates the code-first pillar.
+
+**Babylon.js confirmed.** But we have been using it wrong. The gap between current output
+(grey boxes) and what the engine can produce (warm, lit, textured, shadowed, post-processed)
+is entirely about how we use it — not the engine itself.
+
+### What We Are Not Using (and Must)
+
+| Feature | Status | Impact |
+|---|---|---|
+| `ShadowGenerator` | ❌ missing | Without shadows everything is flat and lifeless |
+| `PBRMaterial` | ❌ using `StandardMaterial` | PBR gives substance and warmth to surfaces |
+| `DefaultRenderingPipeline` (SSAO2, DOF, bloom) | ⚠️ partial | SSAO gives depth; bloom makes window glow read |
+| Procedural / canvas textures | ❌ missing | Brick, stone, grass make materials readable |
+| Proper mesh geometry | ❌ scaled boxes only | Component-built meshes are essential |
+| `SkyMaterial` | ❌ solid clear colour | Dynamic sky gives atmosphere |
+
+### The Real Problem With Current Output
+
+1. **No shadows** — a scene with no shadows has no depth, no warmth, no time-of-day
+2. **No textures** — flat-coloured boxes with StandardMaterial look like debug geometry
+3. **No detail geometry** — buildings need windows, doors, roofs as actual mesh parts
+4. **No ground character** — grey flat plane reads as nothing; needs grass, paths, hedges
+5. **Placeholder trees** — cones are a stand-in; proper foliage changes the entire feel
+6. **No scale anchors** — without a recognisable element (a post box, a bench, a person) the viewer can't read the scene as a place
+
+### Visual Reference: How Other Games Get "Cozy"
+
+**Townscaper** (Stålberg, 2021):
+- Simple geometry + perfect soft shadows + warm palette = extremely cozy
+- Key: every surface edge is beveled; soft diffuse light from two angles; no specular
+- Lesson: *it is mostly the shadows and the bevel*
+
+**Tiny Glade** (Pounce Light, 2024):
+- Real-time mesh growth; stone/wood procedural materials; global illumination baked per-frame
+- Lesson: *material quality and subsurface scattering on stone makes surfaces feel physical*
+
+**A Short Hike** (Robinson-Yu, 2019):
+- Dithered rendering, extremely warm palette, 3D but feels illustrated
+- Lesson: *art direction is a decision, not an accident — commit to a specific filter*
+
+**Mini Motorways** (Dinosaur Polo Club, 2021):
+- Flat design but strong shadows (drop shadows on roads), warm ground colour
+- Lesson: *even flat-looking games use shadow to read depth*
+
+**Key takeaway for Phase 0.5**: The rendering pipeline (shadows + PBR + post-processing) must
+be established first. Even simple geometry looks good under correct lighting. Even good geometry
+looks bad without it.
+
+---
+
 ## The Name
 
 **Hiraeth** (Welsh, noun): A deep homesickness or longing; a grief for the loss of something, or for something that may never have been. A sense of incompleteness or imperfection. It is distinct from nostalgia in that it contains within it an acknowledgement that the past — or the imagined past — cannot be returned to.

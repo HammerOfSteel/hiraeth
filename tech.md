@@ -4,7 +4,9 @@
 
 No editor. No engine GUI. Everything is code.
 
-### Rendering: Babylon.js 9 + TypeScript
+### Rendering: Babylon.js 9 + TypeScript *(confirmed)*
+
+See `research.md` → *Tech Stack Research* for the full evaluation.
 
 **[Babylon.js](https://babylonjs.com)** is the primary rendering engine. It's TypeScript-native, has no required GUI editor, runs in-browser via WebGL/WebGPU, and ships with exactly what Hiraeth needs:
 
@@ -17,9 +19,31 @@ No editor. No engine GUI. Everything is code.
 - Large World Rendering (no floating point jitter at scale)
 - Instances for geometry (trees, windows, fence posts — one draw call)
 
-Three.js is the spiritual predecessor and well-understood — but Babylon.js 9 ships more of what's needed out of the box (nav mesh, retargeting, atmospheric rendering) without requiring third-party bolt-ons.
-
 **WebGPU** is targeted as the primary rendering backend where available, with WebGL2 fallback.
+
+### Phase 0.5 Rendering Pipeline *(to be implemented)*
+
+The render pipeline must be established before building assets on top of it:
+
+```
+DefaultRenderingPipeline
+  ├── SSAO2            — ambient occlusion for depth and crevice darkening
+  ├── Depth of Field   — tilt-shift miniature effect (focused mid-scene)
+  ├── Bloom            — window glow, street lamps, emissive materials
+  ├── Chromatic Aberr. — subtle lens character
+  └── Vignette         — already active; refine strength
+
+ShadowGenerator (DirectionalLight: sun)
+  ├── Type: PCF (Percentage Closer Filtering) for soft shadows
+  ├── Map size: 2048
+  └── All building, vehicle, character, tree meshes: cast + receive
+
+PBRMaterial (replaces StandardMaterial for all world objects)
+  ├── albedo texture: procedural canvas (brick, stone, render, tarmac)
+  ├── bumpTexture: canvas normal-ish effect
+  ├── roughness: 0.85–0.95 (matte — no mirror reflections)
+  └── metallic: 0.0 (non-metallic: brick, stone, wood, glass is separate)
+```
 
 ### Language: TypeScript
 
@@ -33,7 +57,7 @@ Fast HMR for development, clean ESM output. No Webpack complexity.
 
 The UI layer (info panels, character cards, settings, minimap) is a **Svelte 5** overlay sitting atop the canvas. Svelte compiles to minimal vanilla JS with no virtual DOM overhead — ideal for a long-running simulation where GC pressure matters. The boundary between Svelte and Babylon.js is a reactive event bus.
 
-### Simulation Core: bitECS
+### Simulation Core: bitECS *(Phase 4+)*
 
 **[bitECS](https://github.com/NateTheGreatt/bitECS)** is an archetype-based Entity Component System. It operates on TypedArrays — cache-friendly, no GC, capable of simulating thousands of characters' state at 60fps in a single JS thread.
 
@@ -43,19 +67,66 @@ All simulation state (position, schedule, needs, relationships, mood) lives in E
 
 **[simplex-noise](https://www.npmjs.com/package/simplex-noise)** for seeded terrain heightmap generation. Layered octaves with domain warping produce an organic valley landscape. The heightmap is used as a **logic layer only** — for zone classification, river tracing, and road routing cost. The visual mesh is **flat (Y = 0)** across the entire world.
 
-This is a deliberate isometric design choice: altitude does not read clearly at typical zoom levels in an isometric view. Visual landscape character comes from vertex colour zones, vegetation placement, and lighting — not polygon height. Babylon.js `VertexData` is used for the flat ground mesh with height-zone vertex colours.
+Visual landscape character comes from procedural ground textures (grass, tarmac, soil), vegetation placement, field boundary hedges, and lighting — not polygon height.
 
 ### Physics: Minimal / Custom
 
-No heavy physics engine. Characters use nav mesh pathfinding + smooth steering. Vehicles follow road splines. Water is a shader effect with no physics simulation. Only small interactions (a ball rolling, a door opening) use any impulse-based response.
+No heavy physics engine. Characters use nav mesh pathfinding + smooth steering. Vehicles follow road splines. Water is a shader effect with no physics simulation.
 
-### Persistence: IndexedDB
+### Persistence: IndexedDB *(Phase 9)*
 
-World state is saved to IndexedDB via the **[idb](https://www.npmjs.com/package/idb)** library. Serialization uses MessagePack for compact binary saves.
+World state saved to IndexedDB via **[idb](https://www.npmjs.com/package/idb)**. Serialization uses MessagePack for compact binary saves.
 
-### Real Map Data: Overpass API (optional)
+### Real Map Data: Overpass API *(Phase 8)*
 
-When generating from a real location, the game queries the **OpenStreetMap Overpass API** for road networks, building footprints, landuse, and waterways, then uses this as the seed for world generation rather than pure noise.
+Queries the **OpenStreetMap Overpass API** for road networks, building footprints, landuse, and waterways when generating from a real location.
+
+---
+
+## Building Component Architecture *(Phase 0.5)*
+
+Buildings are assembled from typed mesh components, not scaled boxes.
+
+```
+BuildingBlueprint {
+  type:        'cottage' | 'terrace' | 'semi' | 'detached' | 'bungalow'
+             | 'shop' | 'pub' | 'church' | 'civic' | 'apartment'
+  floors:      number          // 1–5
+  width:       number          // metres
+  depth:       number          // metres
+  roofStyle:   'pitched' | 'hipped' | 'mansard' | 'flat' | 'gabled'
+  wallMat:     'brick' | 'stone' | 'render' | 'pebbledash'
+  age:         number          // 0–1 → new to derelict
+  hasChimney:  boolean
+  hasBayWindow:boolean
+  hasDormer:   boolean
+}
+
+BuildingComponent
+  ├── WallPanel       — flat quad + procedural UV texture
+  ├── WindowUnit      — frame mesh + glass + emissive night state
+  ├── DoorUnit        — frame + door leaf + colour
+  ├── RoofMesh        — geometry from blueprint roof style
+  ├── ChimneyStack    — cylinder + pot detail
+  └── FoundationBase  — wide low plinth, stone material
+
+BuildingFactory.assemble(blueprint) → MergedMesh
+```
+
+---
+
+## Road Architecture *(Phase 0.5)*
+
+Roads use spline-based generation, not straight box segments.
+
+```
+RoadSpline
+  ├── Waypoints: RoadNode[] from RoadNetwork A* path
+  ├── Curve3.CreateCatmullRomSpline(waypoints, 10) → smooth path
+  ├── RoadMesh: ribbon along spline, width per road type
+  ├── PavementMesh: thinner ribbon, offset left + right
+  └── JunctionMesh: intersection fill at road crossings
+```
 
 ---
 
