@@ -1,19 +1,16 @@
 /**
  * SettlementLayout — generates different urban morphologies.
  *
- * Each layout function produces a { roadGraph, parcels } pair that the
- * WorldGenerator can render without modification.
- *
  * Types:
- *   'valley_town'       — current default; A* road + terraced grid
- *   'linear_village'    — single main road ribbon, no side streets, wider plots
- *   'hamlet'            — 6–14 scattered buildings, one short lane
- *   'nucleated_village' — cross-road pattern around a central green
+ *   'valley_town'        — A* road through valley + organic side streets + mixed use
+ *   'linear_village'     — single ribbon road, houses pushed well back with gardens
+ *   'hamlet'             — 5-12 small cottages in loose organic clusters, one lane
+ *   'nucleated_village'  — cross-roads, genuine village green, church + pub anchors
  */
 
 import type { Heightmap } from './TerrainGenerator'
 import { RoadNetwork, type RoadGraph, type RoadNode, type RoadEdge } from './RoadNetwork'
-import { ParcelGenerator, type Parcel } from './Parcel'
+import { ParcelGenerator, type Parcel, type ZoneType } from './Parcel'
 import { mulberry32 } from '@utils/Seeder'
 
 export type SettlementType =
@@ -27,12 +24,9 @@ export interface LayoutResult {
   parcels: Parcel[]
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Shared helpers ────────────────────────────────────────────────────────────
 
-function gridToWorld(
-  gx: number, gz: number,
-  hm: Heightmap,
-): { wx: number; wz: number } {
+function gridToWorld(gx: number, gz: number, hm: Heightmap): { wx: number; wz: number } {
   const { worldWidth, worldDepth } = hm.config
   return {
     wx: (gx / (hm.width  - 1)) * worldWidth  - worldWidth  / 2,
@@ -40,10 +34,7 @@ function gridToWorld(
   }
 }
 
-function worldToGrid(
-  wx: number, wz: number,
-  hm: Heightmap,
-): { gx: number; gz: number } {
+function worldToGrid(wx: number, wz: number, hm: Heightmap): { gx: number; gz: number } {
   const { worldWidth, worldDepth } = hm.config
   return {
     gx: Math.round(((wx + worldWidth  / 2) / worldWidth)  * (hm.width  - 1)),
@@ -51,170 +42,249 @@ function worldToGrid(
   }
 }
 
+/** Check if a candidate parcel centre is too close to any already placed. */
+function overlaps(
+  placed: Array<{ cx: number; cz: number }>,
+  cx: number, cz: number, minDist: number,
+): boolean {
+  for (const p of placed) {
+    const dx = p.cx - cx, dz = p.cz - cz
+    if (dx * dx + dz * dz < minDist * minDist) return true
+  }
+  return false
+}
+
 // ── Settlement generators ─────────────────────────────────────────────────────
 
 export class SettlementLayout {
   static generate(hm: Heightmap, seed: number, type: SettlementType): LayoutResult {
     switch (type) {
-      case 'linear_village':   return SettlementLayout._linear(hm, seed)
-      case 'hamlet':           return SettlementLayout._hamlet(hm, seed)
-      case 'nucleated_village':return SettlementLayout._nucleated(hm, seed)
-      default:                 return SettlementLayout._valleyTown(hm, seed)
+      case 'linear_village':    return SettlementLayout._linear(hm, seed)
+      case 'hamlet':            return SettlementLayout._hamlet(hm, seed)
+      case 'nucleated_village': return SettlementLayout._nucleated(hm, seed)
+      default:                  return SettlementLayout._valleyTown(hm, seed)
     }
   }
 
-  // ── Valley town — current default ─────────────────────────────────────────
+  // ── Valley town ────────────────────────────────────────────────────────────
+  // Pass seed through to ParcelGenerator for consistent zone rolls.
   private static _valleyTown(hm: Heightmap, seed: number): LayoutResult {
     const roadGraph = RoadNetwork.generate(hm, seed)
-    const parcels   = ParcelGenerator.generate(roadGraph)
+    const parcels   = ParcelGenerator.generate(roadGraph, seed)
     return { roadGraph, parcels }
   }
 
-  // ── Linear village — ribbon development, one road ─────────────────────────
+  // ── Linear village — ribbon road, generous gardens, no side streets ────────
   private static _linear(hm: Heightmap, seed: number): LayoutResult {
-    // Generate the full road graph, then discard all side streets.
     const full = RoadNetwork.generate(hm, seed)
 
-    const mainNodeIds  = new Set(full.nodes.filter(n => n.isMainRoad).map(n => n.id))
+    // Strip all side streets — pure ribbon
+    const mainIds = new Set(full.nodes.filter(n => n.isMainRoad).map(n => n.id))
     const roadGraph: RoadGraph = {
       nodes: full.nodes.filter(n => n.isMainRoad),
-      edges: full.edges.filter(e => e.type === 'main' && mainNodeIds.has(e.from) && mainNodeIds.has(e.to)),
+      edges: full.edges.filter(e => e.type === 'main' && mainIds.has(e.from) && mainIds.has(e.to)),
     }
 
-    // Parcels are generated as normal but with a sparser interval
-    const allParcels = ParcelGenerator.generate(roadGraph)
-
-    // Keep ~60 % of parcels at random, using a seeded rng for reproducibility
-    const rng = mulberry32(seed ^ 0x00BEEF11)
-    const parcels = allParcels.filter(() => rng() < 0.62)
+    // ParcelGenerator already applies large setback + generous gaps.
+    // Linear villages are even sparser: keep ~55 % of placements.
+    const rng  = mulberry32(seed ^ 0xFEED1234)
+    const all  = ParcelGenerator.generate(roadGraph, seed)
+    const parcels = all.filter(() => rng() < 0.55)
 
     return { roadGraph, parcels }
   }
 
-  // ── Hamlet — scattered buildings, one short lane ───────────────────────────
+  // ── Hamlet — small cottages in loose organic clusters, one short lane ──────
   private static _hamlet(hm: Heightmap, seed: number): LayoutResult {
     const rng = mulberry32(seed ^ 0xDEAD4321)
     const { worldWidth, worldDepth } = hm.config
 
-    // Find the valley centre X at mid-depth
-    const midGz  = Math.floor(hm.depth / 2)
-    const midGx  = RoadNetwork.findValleyX(hm, midGz)
+    const midGz = Math.floor(hm.depth / 2)
+    const midGx = RoadNetwork.findValleyX(hm, midGz)
     const centre = gridToWorld(midGx, midGz, hm)
 
-    // One short lane (2 nodes, 1 edge)
-    const laneHalf = 18 + rng() * 14
+    // ── One short lane ─────────────────────────────────────────────────────
+    // Slightly angled for a more organic feel
+    const laneHalf  = 18 + rng() * 12
+    const laneAngle = (rng() - 0.5) * 0.3   // ±~17°
+    const ca = Math.cos(laneAngle), sa = Math.sin(laneAngle)
+
     const nodes: RoadNode[] = [
-      { id: 0, gx: midGx, gz: midGz - 10, wx: centre.wx, wz: centre.wz - laneHalf, isMainRoad: true },
-      { id: 1, gx: midGx, gz: midGz + 10, wx: centre.wx, wz: centre.wz + laneHalf, isMainRoad: true },
+      {
+        id: 0, gx: midGx, gz: midGz - 6,
+        wx: centre.wx - sa * laneHalf,
+        wz: centre.wz - ca * laneHalf,
+        isMainRoad: true,
+      },
+      {
+        id: 1, gx: midGx, gz: midGz + 6,
+        wx: centre.wx + sa * laneHalf,
+        wz: centre.wz + ca * laneHalf,
+        isMainRoad: true,
+      },
     ]
     const edges: RoadEdge[] = [{ from: 0, to: 1, type: 'main' }]
     const roadGraph: RoadGraph = { nodes, edges }
 
-    // Scatter 6–14 buildings within ~55 units of the lane's midpoint
-    const count    = 6 + Math.floor(rng() * 9)
-    const radius   = 55
+    // ── Cottage clusters ────────────────────────────────────────────────────
+    // Arrange buildings in 3-4 loose clusters, each with 2-4 cottages.
+    // This prevents the "random scatter across the whole map" problem while
+    // keeping an organic, unplanned feel.
+    const clusterSeeds: Array<{ ox: number; oz: number }> = [
+      { ox: -18 + rng() * 6, oz: -12 + rng() * 8 },
+      { ox:  16 + rng() * 6, oz:  10 + rng() * 8 },
+      { ox:  -8 + rng() * 8, oz:  20 + rng() * 6 },
+      { ox:  22 + rng() * 8, oz: -18 + rng() * 6 },
+    ]
+
+    const totalBuildings = 5 + Math.floor(rng() * 7)   // 5 – 12
     const parcels: Parcel[] = []
+    const placed: Array<{ cx: number; cz: number }> = []
+    let pid = 0
 
-    for (let i = 0; i < count; i++) {
-      // Cluster loosely around the lane but with irregular placement
-      const angle = rng() * Math.PI * 2
-      const dist  = 8 + rng() * radius * 0.85
+    // Explicitly place one pub (commercial) and one chapel (civic)
+    const specialZones: ZoneType[] = ['commercial', 'civic']
+    let specialIdx = 0
 
-      const cx = centre.wx + Math.cos(angle) * dist
-      const cz = centre.wz + Math.sin(angle) * dist
+    for (let i = 0; i < totalBuildings; i++) {
+      const cluster = clusterSeeds[Math.floor(rng() * clusterSeeds.length)]!
 
-      // Clamp to world bounds
-      const hw = worldWidth / 2 - 10
-      const hd = worldDepth / 2 - 10
-      if (Math.abs(cx) > hw || Math.abs(cz) > hd) continue
+      // Cottage scatter within ±8 units of cluster centre
+      const tx = centre.wx + cluster.ox + (rng() - 0.5) * 16
+      const tz = centre.wz + cluster.oz + (rng() - 0.5) * 16
 
-      const plotW  = 14 + rng() * 10
-      const plotD  = 20 + rng() * 14
-      const slight = (rng() - 0.5) * 0.25   // slight rotation (~±7°)
+      // World bounds check
+      const hw = worldWidth  / 2 - 15
+      const hd = worldDepth  / 2 - 15
+      if (Math.abs(tx) > hw || Math.abs(tz) > hd) continue
+
+      // Overlap: cottages need at least 10 units apart (centre to centre)
+      if (overlaps(placed, tx, tz, 10)) continue
+
+      placed.push({ cx: tx, cz: tz })
+
+      // Cottage proportions — small, not apartment-block sized
+      const plotW = 6  + rng() * 3.5   // 6 – 9.5 units
+      const plotD = 9  + rng() * 5     // 9 – 14 units
+      // Slight angle variation — cottages face slightly different directions
+      const plotAngle = (rng() - 0.5) * 0.5   // ±~14°
+
+      // First two specials get pub / chapel; rest are residential
+      const zone: ZoneType = specialIdx < specialZones.length
+        ? specialZones[specialIdx++]!
+        : 'residential'
 
       parcels.push({
-        id: i,
-        cx,
-        cz,
-        width:  plotW,
-        depth:  plotD,
-        angle:  slight,
-        zone:   rng() < 0.15 ? 'commercial' : rng() < 0.08 ? 'civic' : 'residential',
+        id:    pid++,
+        cx:    tx,
+        cz:    tz,
+        width: plotW,
+        depth: plotD,
+        angle: plotAngle,
+        zone,
       })
     }
 
     return { roadGraph, parcels }
   }
 
-  // ── Nucleated village — cross-roads around a central green ────────────────
+  // ── Nucleated village — genuine village green, church, pub, ring housing ───
   private static _nucleated(hm: Heightmap, seed: number): LayoutResult {
     const rng = mulberry32(seed ^ 0xC0FFEE99)
+    const { worldWidth, worldDepth } = hm.config
 
-    // Centre of the village is the valley midpoint
     const midGz = Math.floor(hm.depth / 2)
     const midGx = RoadNetwork.findValleyX(hm, midGz)
     const centre = gridToWorld(midGx, midGz, hm)
 
-    const { worldWidth, worldDepth } = hm.config
+    // ── Cross-road arms ────────────────────────────────────────────────────
+    // Vary arm lengths so the plan is organic, not perfectly symmetrical
+    const armN = 40 + rng() * 25
+    const armS = 35 + rng() * 25
+    const armW = 28 + rng() * 20
+    const armE = 30 + rng() * 20
 
-    // Four arms: N, S, E, W — variable lengths
     const arms = [
-      { dx: 0,  dz: -1, worldLen: 35 + rng() * 25 },  // N
-      { dx: 0,  dz:  1, worldLen: 35 + rng() * 25 },  // S
-      { dx: -1, dz:  0, worldLen: 28 + rng() * 20 },  // W
-      { dx:  1, dz:  0, worldLen: 28 + rng() * 20 },  // E
-    ]
+      { dx: 0,  dz: -1, worldLen: armN, label: 'N' },
+      { dx: 0,  dz:  1, worldLen: armS, label: 'S' },
+      { dx: -1, dz:  0, worldLen: armW, label: 'W' },
+      { dx:  1, dz:  0, worldLen: armE, label: 'E' },
+    ] as const
 
     const nodes: RoadNode[] = []
     const edges: RoadEdge[] = []
     let nextId = 0
 
-    // Centre node
     const centreNode: RoadNode = {
-      id: nextId++,
-      gx: midGx, gz: midGz,
-      wx: centre.wx, wz: centre.wz,
-      isMainRoad: true,
+      id: nextId++, gx: midGx, gz: midGz,
+      wx: centre.wx, wz: centre.wz, isMainRoad: true,
     }
     nodes.push(centreNode)
 
+    // 4 nodes per arm (more spacing = more road = more parcel slots per arm)
     const nodesPerArm = 4
     for (const arm of arms) {
       let prevId = centreNode.id
       for (let s = 1; s <= nodesPerArm; s++) {
-        const t      = s / nodesPerArm
-        const wx     = centre.wx + arm.dx * arm.worldLen * t
-        const wz     = centre.wz + arm.dz * arm.worldLen * t
+        const t  = s / nodesPerArm
+        const wx = centre.wx + arm.dx * arm.worldLen * t
+        const wz = centre.wz + arm.dz * arm.worldLen * t
+        if (Math.abs(wx) > worldWidth / 2 - 10 || Math.abs(wz) > worldDepth / 2 - 10) break
         const { gx, gz } = worldToGrid(wx, wz, hm)
-        if (Math.abs(wx) > worldWidth / 2 - 8 || Math.abs(wz) > worldDepth / 2 - 8) break
-
         const id = nextId++
-        nodes.push({ id, gx, gz, wx, wz, isMainRoad: s <= 2 })
-        edges.push({ from: prevId, to: id, type: s <= 2 ? 'main' : 'side' })
+        nodes.push({ id, gx, gz, wx, wz, isMainRoad: true })
+        edges.push({ from: prevId, to: id, type: 'main' })
         prevId = id
       }
     }
 
     const roadGraph: RoadGraph = { nodes, edges }
-    const allParcels = ParcelGenerator.generate(roadGraph)
 
-    // Place a small civic building near the centre (a "green" parcel)
-    const greenPlot: Parcel = {
-      id: allParcels.length,
-      cx: centre.wx,
-      cz: centre.wz,
-      width: 14,
-      depth: 14,
-      angle: 0,
-      zone: 'green',
+    // ── Parcels from road graph (already well-spaced by new ParcelGenerator) ─
+    const roadParcels = ParcelGenerator.generate(roadGraph, seed)
+
+    // Remove any parcels that fall within the central green zone
+    const GREEN_EXCLUSION = 18   // nothing placed inside this radius of centre
+    const houseParcels = roadParcels.filter(p => {
+      const dx = p.cx - centre.wx, dz = p.cz - centre.wz
+      return dx * dx + dz * dz > GREEN_EXCLUSION * GREEN_EXCLUSION
+    })
+
+    // ── Anchor buildings — explicitly placed, not generated from road graph ──
+    // They go on the pavement between the road edge and the green.
+    const anchorOffset = GREEN_EXCLUSION + 5   // just outside the green
+
+    // Church on the N arm
+    const church: Parcel = {
+      id: 9000, zone: 'civic',
+      cx: centre.wx + 9,
+      cz: centre.wz - anchorOffset - 4,
+      width: 11, depth: 18, angle: 0,
     }
 
-    // Keep most parcels but give it an organic feel by randomly dropping a few
-    const parcels = [
-      greenPlot,
-      ...allParcels.filter(() => rng() < 0.80),
-    ]
+    // Pub on the S arm
+    const pub: Parcel = {
+      id: 9001, zone: 'commercial',
+      cx: centre.wx - 7,
+      cz: centre.wz + anchorOffset + 2,
+      width: 9, depth: 12, angle: 0,
+    }
+
+    // Village green itself (a 'green' zone parcel — BuildingPlacer will
+    // render as low shrubs / lawn, not a building)
+    const green: Parcel = {
+      id: 9002, zone: 'green',
+      cx: centre.wx,
+      cz: centre.wz,
+      width: 22, depth: 22, angle: 0,
+    }
+
+    // Keep roughly 70 % of road parcels for a relaxed feel
+    const sparseHouses = houseParcels.filter(() => rng() < 0.72)
+
+    const parcels = [green, church, pub, ...sparseHouses]
 
     return { roadGraph, parcels }
   }
 }
+

@@ -133,8 +133,22 @@ export class BuildingPlacer {
       const [hMin, hMax] = ZONE_HEIGHT[p.zone]
       const h = hMin + this._rng() * (hMax - hMin)
 
-      const bw = p.width  * 0.74
-      const bd = p.depth  * 0.74
+      // ── Body ──────────────────────────────────────────────────────────────
+      // Buildings use a fraction of their parcel — the rest is garden/yard.
+      // Residential: 0.60 (large front garden visible from road)
+      // Commercial:  0.82 (street-front, denser)
+      // Civic:       0.72 (some grounds)
+      // Green:       0.90 (fills most of the plot as low vegetation)
+      const FOOTPRINT: Record<string, number> = {
+        residential: 0.60,
+        commercial:  0.82,
+        civic:       0.72,
+        green:       0.90,
+      }
+      const fp = FOOTPRINT[p.zone] ?? 0.70
+
+      const bw = p.width  * fp
+      const bd = p.depth  * fp
       const ry = p.angle
 
       // "Law of Entropy" (Gemini): nothing in a real town is perfectly placed.
