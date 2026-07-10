@@ -4,6 +4,8 @@ import {
   Scene,
   HemisphericLight,
   Vector3,
+  Color3,
+  Color4,
   type AbstractEngine,
 } from '@babylonjs/core'
 
@@ -82,9 +84,14 @@ export class SceneManager {
   private static _buildScene(engine: AbstractEngine): Scene {
     const scene = new Scene(engine)
 
-    // Default ambient light so placeholder geometry is visible immediately
+    // Overcast British sky — soft blue-grey, not navy
+    scene.clearColor = new Color4(0.56, 0.70, 0.78, 1.0)
+
+    // Ambient sky light: cool blue-white from above, warm reflected ground colour
     const ambient = new HemisphericLight('ambientLight', new Vector3(0, 1, 0), scene)
-    ambient.intensity = 0.8
+    ambient.intensity    = 0.65
+    ambient.diffuse      = new Color3(0.90, 0.93, 1.00)   // pale sky
+    ambient.groundColor  = new Color3(0.38, 0.42, 0.30)   // warm ground bounce
 
     return scene
   }

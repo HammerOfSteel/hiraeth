@@ -4,7 +4,7 @@ import { SceneManager } from '@engine/SceneManager'
 import { RenderLoop } from '@engine/RenderLoop'
 import { IsometricCamera } from '@camera/IsometricCamera'
 import { WorldGenerator, DEFAULT_WORLD_CONFIG, type WorldConfig, type WorldResult } from '@world/WorldGenerator'
-import { HemisphericLight, Vector3 } from '@babylonjs/core'
+import { DirectionalLight, Vector3, Color3 } from '@babylonjs/core'
 import { Pane } from 'tweakpane'
 
 // ── UI overlay ────────────────────────────────────────────────────────────────
@@ -16,9 +16,11 @@ async function bootstrap(): Promise<void> {
   const sceneManager = await SceneManager.create(canvas)
   const { scene } = sceneManager
 
-  // Overhead + fill light
-  const sun = new HemisphericLight('sun', new Vector3(0.4, 1, 0.3), scene)
+  // Directional sun light — warm golden from NW to match default camera angle
+  // SceneManager already provides the ambient HemisphericLight; this adds the sun.
+  const sun = new DirectionalLight('sun', new Vector3(-0.55, -0.80, -0.35), scene)
   sun.intensity = 1.1
+  sun.diffuse   = new Color3(1.00, 0.96, 0.85)   // warm white
 
   // ── Camera ──────────────────────────────────────────────────────────────────
   new IsometricCamera(scene, canvas, { radius: 160, maxRadius: 320 })
