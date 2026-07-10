@@ -10,25 +10,40 @@ The visual reference points are the **Welsh Marches**, the **Scottish Borders**,
 
 ## Terrain Generation
 
-### Heightmap
+### Design philosophy: flat world, rich surface
 
-Generated with layered **simplex noise + domain warping** to produce organic, non-repeating terrain. Default parameters create:
+Hiraeth uses a **flat ground plane** for all world geometry. Buildings, roads, trees, and characters all sit at Y = 0. There are no altitude changes in the mesh.
 
-- A central **valley floor** (river corridor, lowest point)
-- **Hillsides** on either flank, steeper on one side than the other
-- **Uplands** beyond — rough pasture, rocky outcrops
-- A **ridgeline** at the edge of the map — the horizon
+This is a deliberate choice for the isometric style:
+- Isometric cameras at normal zoom do not meaningfully communicate altitude
+- Variable-height terrain creates building alignment and road mesh complexity with minimal visual payoff
+- The *sensation* of landscape — rolling hills, a sheltered valley, a wide moor — comes from **colour zones, vegetation density, field boundaries, and light**, not polygon height
+- It matches the genre references: Stardew Valley, Townscaper, the early Sims games
 
-Parameters exposed to the player:
-- `valleyWidth` — narrow gorge vs. broad agricultural valley
-- `hillSteepness` — gentle rolling vs. dramatic escarpment
-- `peakElevation` — max height above valley floor
-- `coastline` — boolean; adds a cliff/beach edge at map boundary
-- `riverCount` — 1 main river, optionally secondary tributaries
+### Heightmap: logic layer only
+
+A **simplex noise + domain warping** heightmap is still generated, but it is **never used for mesh Y coordinates**. It serves as a logic layer:
+
+- **Valley identification**: the lowest-elevation spine defines where the river runs and where the main road goes
+- **Zone classification**: height value at each cell determines which colour zone applies (mud → valley grass → hillside → moorland → rock)
+- **Road cost**: A* pathfinding on the road network uses height as a cost proxy to prefer valley-floor routes
+- **Vegetation density**: tree placement probability varies by height zone
+
+Parameters exposed:
+- `valleyWidth` — how wide the flat valley floor zone is
+- `hilliness` — amplitude of the noise (affects zone distribution, not mesh height)
+- `coastline` — boolean; southern edge fades to a coastal colour zone
+- `seed` — fully deterministic generation
 
 ### Rivers
 
-Rivers are carved via a simple **flow simulation**: water flows downhill from heightmap until it reaches the map edge or a defined sink. Rivers carve shallow channels into the terrain mesh. They are rendered as a **shader-effect surface** (animated normal map, reflective) rather than simulated fluid.
+Rivers are traced by following the lowest-elevation path through the heightmap. The river is rendered as a **flat ribbon mesh** (Y = 0.02, slightly above ground to avoid z-fighting) with a translucent blue-grey material. Phase 2 will add an animated water shader (normal map scroll + Fresnel).
+
+Rivers affect:
+- Road routing (roads prefer not to cross; bridges are a future feature)
+- Building placement (no buildings in the river zone)
+- Visual character (light reflection, morning mist)
+- Economic life (fishing, the pub near the bridge)
 
 Rivers affect:
 - Road routing (bridges, fords)
@@ -36,21 +51,22 @@ Rivers affect:
 - Visual character (light reflection, mist near water in mornings)
 - Economic life (fishing, the pub near the bridge)
 
-### Terrain Texture
+### Ground surface: vertex colour zones
 
-Terrain is blended between material zones using a **splat map** derived from height and slope:
+The flat ground mesh uses **vertex colours** driven by the heightmap's zone classification. Each vertex is assigned a colour based on its normalised height value:
 
-| Zone | Height / Slope | Visual |
+| Zone | Height range (normalised) | Vertex colour |
 |---|---|---|
-| River channel | Lowest, flat | Dark mud, pebble, shallow water |
-| Valley floor | Low, gentle | Grass, some pavement/tarmac near roads |
-| Farmland | Mid, gentle | Divided fields (fence lines, hedges) |
-| Hillside | Mid, steeper | Rough grass, bracken, heather |
-| Rocky outcrop | High slope | Stone, sparse vegetation |
-| Upland | High, flatter | Moorland, peat, tussock grass |
-| Coastal cliff | Steep edge | Rock face, chalk or sandstone |
+| River mud | 0 – 0.10 | Dark brown |
+| Valley floor grass | 0.10 – 0.20 | Deep green |
+| Gentle hillside | 0.20 – 0.45 | Mid green |
+| Rough upland | 0.45 – 0.65 | Olive-green |
+| Moorland / heather | 0.65 – 0.82 | Warm brown-grey |
+| Rock / outcrop | 0.82 – 1.00 | Cool grey |
 
-Vegetation is scattered as **instanced geometry** (no billboards) — grass tufts, gorse, bracken, oak, ash, hawthorn hedges. Density varies by zone.
+Phase 2 will replace vertex colours with a proper **splat texture** (blended PBR materials with normal maps). The vertex colour pass is a fast readable stand-in for development.
+
+Vegetation is scattered as **instanced geometry** (no billboards) — cone-tree placeholders in Phase 1, replaced with oak/ash/hawthorn variants in Phase 3.
 
 ---
 

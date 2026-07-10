@@ -70,16 +70,15 @@ export class VegetationPlacer {
 
         const wx = (gx / (width - 1)) * worldWidth - worldWidth / 2 + (rng() - 0.5) * (worldWidth / width) * 4
         const wz = (gz / (depth - 1)) * worldDepth - worldDepth / 2 + (rng() - 0.5) * (worldDepth / depth) * 4
-        const wy = h * maxHeight
-
+        // Flat world: trees always at Y = 0; trunk pivot is at its centre so +0.8
         const rot = rng() * Math.PI * 2
 
         const trunk = this._trunkTpl.createInstance(`trunk_${count}`)
-        trunk.position = new Vector3(wx, wy + 0.8, wz)
+        trunk.position = new Vector3(wx, 0.8, wz)
         trunk.rotation.y = rot
 
         const canopy = this._canopyTpl.createInstance(`canopy_${count}`)
-        canopy.position = new Vector3(wx, wy + 2.9, wz)
+        canopy.position = new Vector3(wx, 2.9, wz)
         canopy.rotation.y = rot
 
         meshes.push(trunk, canopy)

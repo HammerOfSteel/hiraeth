@@ -92,10 +92,11 @@ export class WorldGenerator {
       if (len < 0.5) continue
       const midX = (from.wx + to.wx) / 2
       const midZ = (from.wz + to.wz) / 2
-      const surfY = TerrainGenerator.sampleNorm(heightmap, (midX + config.worldWidth / 2) / config.worldWidth, (midZ + config.worldDepth / 2) / config.worldDepth) * config.maxHeight
+      // Flat world — no terrain height sampling needed
       const roadW = edge.type === 'main' ? 4.5 : 3.2
       const seg: AbstractMesh = MeshBuilder.CreateBox(`road_${edge.from}_${edge.to}`, { width: roadW, height: 0.12, depth: len }, this.scene)
-      seg.position  = new Vector3(midX, surfY + 0.06, midZ)
+      // Flat world: roads at Y = 0 + half-height offset so top face sits flush
+      seg.position  = new Vector3(midX, 0.06, midZ)
       seg.rotation.y = Math.atan2(dx, dz)
       seg.material  = this._roadMat
       meshes.push(seg)
@@ -103,7 +104,7 @@ export class WorldGenerator {
 
     // 6 ── Parcels + buildings ─────────────────────────────────────────────────
     const parcels = ParcelGenerator.generate(roadGraph)
-    const bldMeshes = this._buildingPlacer.place(parcels, heightmap)
+    const bldMeshes = this._buildingPlacer.place(parcels)
     meshes.push(...bldMeshes)
 
     // 7 ── Vegetation ──────────────────────────────────────────────────────────

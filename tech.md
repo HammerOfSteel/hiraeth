@@ -39,9 +39,11 @@ The UI layer (info panels, character cards, settings, minimap) is a **Svelte 5**
 
 All simulation state (position, schedule, needs, relationships, mood) lives in ECS components. Babylon.js reads this state to position and animate meshes.
 
-### Terrain: Simplex Noise
+### Terrain: Simplex Noise + Flat Mesh
 
-**[simplex-noise](https://www.npmjs.com/package/simplex-noise)** for terrain heightmap generation. Layered octaves with domain warping for natural-looking valleys and hillsides. GPU-side mesh generation using Babylon.js `VertexData`.
+**[simplex-noise](https://www.npmjs.com/package/simplex-noise)** for seeded terrain heightmap generation. Layered octaves with domain warping produce an organic valley landscape. The heightmap is used as a **logic layer only** — for zone classification, river tracing, and road routing cost. The visual mesh is **flat (Y = 0)** across the entire world.
+
+This is a deliberate isometric design choice: altitude does not read clearly at typical zoom levels in an isometric view. Visual landscape character comes from vertex colour zones, vegetation placement, and lighting — not polygon height. Babylon.js `VertexData` is used for the flat ground mesh with height-zone vertex colours.
 
 ### Physics: Minimal / Custom
 

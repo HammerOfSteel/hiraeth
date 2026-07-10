@@ -33,7 +33,8 @@ export class RiverSystem {
       const gzClamped = Math.min(gz, depth - 1)
       const worldX = (cx / (width - 1)) * worldWidth - worldWidth / 2
       const worldZ = (gzClamped / (depth - 1)) * worldDepth - worldDepth / 2
-      const worldY = (data[gzClamped * width + cx] as number) * maxHeight + 0.08
+      // Y = tiny offset above flat ground to avoid z-fighting with terrain mesh
+      const worldY = 0.02
 
       points.push({ x: worldX, z: worldZ, y: worldY })
 
