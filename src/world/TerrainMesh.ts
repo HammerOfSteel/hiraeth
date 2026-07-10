@@ -14,12 +14,16 @@ const SPLAT_BANDS: Array<{ maxH: number; color: RGB }> = [
 
 export class TerrainMesh {
   /**
-   * Build a Babylon.js mesh from a Heightmap using VertexData.
-   * Vertex colours provide a height-based splat without a texture.
+   * Build a flat ground mesh from a Heightmap using VertexData.
+   *
+   * The mesh is FLAT — all Y coordinates are 0. The heightmap data is used
+   * only to determine vertex colour zones (valley floor, hillside, moorland,
+   * etc.). This suits the isometric camera: altitude variation doesn't read
+   * well at normal zoom; landscape character comes from colour and objects.
    */
   static create(heightmap: Heightmap, scene: Scene): Mesh {
     const { data, width, depth, config } = heightmap
-    const { worldWidth, worldDepth, maxHeight } = config
+    const { worldWidth, worldDepth } = config  // maxHeight intentionally unused
 
     const dx = worldWidth / (width - 1)
     const dz = worldDepth / (depth - 1)
@@ -31,11 +35,10 @@ export class TerrainMesh {
     const colors: number[] = []
     const indices: number[] = []
 
-    // ── Vertices ──────────────────────────────────────────────────────────────
+    // ── Vertices (Y = 0 always) ───────────────────────────────────────────────
     for (let z = 0; z < depth; z++) {
       for (let x = 0; x < width; x++) {
-        const h = (data[z * width + x] as number) * maxHeight
-        positions.push(ox + x * dx, h, oz + z * dz)
+        positions.push(ox + x * dx, 0, oz + z * dz)   // flat Y = 0
         uvs.push(x / (width - 1), z / (depth - 1))
         const { r, g, b } = TerrainMesh.splatColor(data[z * width + x] as number)
         colors.push(r, g, b, 1)
@@ -53,7 +56,7 @@ export class TerrainMesh {
       }
     }
 
-    // ── Normals (computed from geometry) ─────────────────────────────────────
+    // ── Normals (all pointing straight up for a flat mesh) ────────────────────
     const normsArr = new Float32Array(positions.length)
     VertexData.ComputeNormals(positions, indices, normsArr)
 

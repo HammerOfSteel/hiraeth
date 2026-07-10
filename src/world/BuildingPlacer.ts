@@ -8,7 +8,6 @@ import {
   Vector3,
 } from '@babylonjs/core'
 import type { Parcel, ZoneType } from './Parcel'
-import type { Heightmap } from './TerrainGenerator'
 import { mulberry32 } from '@utils/Seeder'
 
 // Colour palette per zone (muted, British-ish)
@@ -48,7 +47,7 @@ export class BuildingPlacer {
     }
   }
 
-  place(parcels: Parcel[], heightmap: Heightmap): AbstractMesh[] {
+  place(parcels: Parcel[]): AbstractMesh[] {
     const meshes: AbstractMesh[] = []
     for (const p of parcels) {
       const tpl = this._templates.get(p.zone)
@@ -58,22 +57,13 @@ export class BuildingPlacer {
       const h = hMin + this._rng() * (hMax - hMin)
 
       const inst = tpl.createInstance(`bld_${p.id}`)
-      inst.scaling  = new Vector3(p.width * 0.72, h, p.depth * 0.72)
-      const terrainY = BuildingPlacer._sampleY(heightmap, p.cx, p.cz)
-      inst.position  = new Vector3(p.cx, terrainY + h / 2, p.cz)
+      inst.scaling   = new Vector3(p.width * 0.72, h, p.depth * 0.72)
+      // Flat world: all buildings sit at Y = 0; box pivot is at centre so offset by h/2
+      inst.position  = new Vector3(p.cx, h / 2, p.cz)
       inst.rotation.y = p.angle
       meshes.push(inst)
     }
     return meshes
-  }
-
-  private static _sampleY(hm: Heightmap, wx: number, wz: number): number {
-    const { data, width, depth, config } = hm
-    const nx = Math.max(0, Math.min(1, (wx + config.worldWidth / 2) / config.worldWidth))
-    const nz = Math.max(0, Math.min(1, (wz + config.worldDepth / 2) / config.worldDepth))
-    const gx = Math.min(width - 1,  Math.round(nx * (width - 1)))
-    const gz = Math.min(depth - 1,  Math.round(nz * (depth - 1)))
-    return (data[gz * width + gx] as number) * config.maxHeight
   }
 
   dispose(): void {
