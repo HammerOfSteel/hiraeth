@@ -12,9 +12,10 @@ import { TerrainMesh } from './TerrainMesh'
 import { RiverSystem } from './RiverSystem'
 import { WaterBodies } from './WaterBodies'
 import { RoadNetwork, type RoadGraph } from './RoadNetwork'
-import { ParcelGenerator, type Parcel } from './Parcel'
+import { type Parcel } from './Parcel'
 import { BuildingPlacer } from './BuildingPlacer'
 import { VegetationPlacer } from './VegetationPlacer'
+import { SettlementLayout, type SettlementType } from './SettlementLayout'
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ export interface WorldConfig extends TerrainConfig {
   populationDensity: number  // 0.1–1.0
   treeDensity: number        // 0.0–1.0
   maxTrees: number           // hard cap on tree instances
+  settlementType: SettlementType
 }
 
 export const DEFAULT_WORLD_CONFIG: WorldConfig = {
@@ -36,6 +38,7 @@ export const DEFAULT_WORLD_CONFIG: WorldConfig = {
   populationDensity: 0.6,
   treeDensity: 0.28,
   maxTrees: 800,
+  settlementType: 'valley_town',
 }
 
 export interface WorldResult {
@@ -77,8 +80,10 @@ export class WorldGenerator {
       meshes.push(WaterBodies.createRiver(river, this.scene))
     }
 
-    // 4 ── Road graph ─────────────────────────────────────────────────────────
-    const roadGraph = RoadNetwork.generate(heightmap, config.seed)
+    // 4 ── Settlement layout (road graph + parcels) ───────────────────────────
+    const { roadGraph, parcels } = SettlementLayout.generate(
+      heightmap, config.seed, config.settlementType ?? 'valley_town',
+    )
 
     // 5 ── Road meshes (flat boxes per edge) ──────────────────────────────────
     const nodeMap = new Map(roadGraph.nodes.map(n => [n.id, n]))
@@ -94,16 +99,15 @@ export class WorldGenerator {
       const midZ = (from.wz + to.wz) / 2
       // Flat world — no terrain height sampling needed
       const roadW = edge.type === 'main' ? 4.5 : 3.2
-      const seg: AbstractMesh = MeshBuilder.CreateBox(`road_${edge.from}_${edge.to}`, { width: roadW, height: 0.12, depth: len }, this.scene)
-      // Flat world: roads at Y = 0 + half-height offset so top face sits flush
-      seg.position  = new Vector3(midX, 0.06, midZ)
+      const seg: AbstractMesh = MeshBuilder.CreateBox(`road_${edge.from}_${edge.to}`, { width: roadW, height: 0.18, depth: len }, this.scene)
+      // Road centre at Y=0.09 → top surface at Y=0.18, well above river (Y=0.02)
+      seg.position  = new Vector3(midX, 0.09, midZ)
       seg.rotation.y = Math.atan2(dx, dz)
       seg.material  = this._roadMat
       meshes.push(seg)
     }
 
     // 6 ── Parcels + buildings ─────────────────────────────────────────────────
-    const parcels = ParcelGenerator.generate(roadGraph)
     const bldMeshes = this._buildingPlacer.place(parcels)
     meshes.push(...bldMeshes)
 

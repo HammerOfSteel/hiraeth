@@ -71,9 +71,12 @@ export class TerrainMesh {
     vd.applyToMesh(mesh)
 
     const mat = new StandardMaterial('terrainMat', scene)
-    // vertexColorsEnabled is handled automatically by Babylon.js 9 when colors
-    // are present in the VertexData — no explicit opt-in needed.
-    mat.specularColor = new Color3(0.04, 0.04, 0.04)
+    // StandardMaterial inherits vertexColorsEnabled from Material base class.
+    // The TypeScript declarations for BJS 9 don't surface it on the derived type,
+    // but it exists at runtime and is required for the colours buffer to be used.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(mat as any).vertexColorsEnabled = true
+    mat.specularColor = new Color3(0.03, 0.03, 0.03)   // near-matte ground
     mesh.material = mat
 
     return mesh
