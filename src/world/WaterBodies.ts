@@ -39,10 +39,14 @@ export class WaterBodies {
     }, scene)
 
     const mat = new StandardMaterial('riverMat', scene)
-    mat.diffuseColor  = new Color3(0.17, 0.27, 0.44)
-    mat.specularColor = new Color3(0.55, 0.65, 0.80)
-    mat.specularPower = 64
-    mat.alpha = 0.82
+    mat.diffuseColor   = new Color3(0.19, 0.33, 0.55)   // deeper, richer blue
+    mat.specularColor  = new Color3(0.60, 0.75, 0.90)
+    mat.specularPower  = 80
+    mat.alpha = 0.88
+    // Ensure the river always renders before roads; the road mesh sits at Y=0.18
+    // (top), river at Y=0.02 — depth test handles occlusion correctly once
+    // z-fighting against the flat terrain is avoided with a small zOffset.
+    mat.zOffset = -1
     mesh.material = mat
 
     return mesh

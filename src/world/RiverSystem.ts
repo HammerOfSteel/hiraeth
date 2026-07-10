@@ -55,7 +55,7 @@ export class RiverSystem {
       }
     }
 
-    return points.length >= 2 ? [{ points, width: 3.5 }] : []
+    return points.length >= 2 ? [{ points, width: 2.0 }] : []
   }
 
   /** Find the lowest x index in a row within [loFrac, hiFrac] of the width. */
