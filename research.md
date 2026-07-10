@@ -4,68 +4,152 @@ A living document. Add to this as the project develops.
 
 ---
 
-## Tech Stack Research — Rendering Engine
+## POC Tech Stack Evaluation
 
-### Why Babylon.js (confirmed choice)
+Two candidates. We build a POC for each, then pick one. No guessing.
 
-Evaluated against Three.js, custom WebGPU, PlayCanvas, and Godot HTML5 export.
+The POC spec is the same for both stacks:
+- 10 building types with proper geometry (no boxes)
+- Isometric orthographic camera, smooth zoom
+- Window emissive lighting — off by day, warm glow at night
+- Street lamp point lights
+- Day/night cycle (sun arc, light colour shift)
+- Weather: rain particles + mist/fog
+- Town assets: park, playground, roads with pavements
+- Modern UI: asset picker panel + world view, built on a real component library
 
-**Three.js**: Nearly identical capability to Babylon.js for this use case — same WebGL/WebGPU
-abstraction, similar PBR materials. Babylon.js wins on: built-in nav mesh (Recast), skeletal
-animation retargeting, physically-based atmosphere shader, and clustered lighting — all needed
-later. Three.js would require bolt-ons for all of these.
+---
 
-**Custom WebGPU**: Maximum control, compute shaders for crowd simulation. Viable long-term but
-adds 6–12 months of renderer development before any game content. Revisit post-ship.
+### Candidate A — Three.js + React Three Fiber
 
-**PlayCanvas / Godot HTML5**: Both require GUI editors — violates the code-first pillar.
+**The stack:**
+```
+Three.js r170+               — core WebGL/WebGPU renderer
+@react-three/fiber           — declarative React renderer for Three.js
+@react-three/drei            — camera, shadows, environment, helpers
+@react-three/postprocessing  — SSAO, DOF, bloom, noise, vignette
+zustand                      — lightweight scene state
+React 19 + Vite 6
+shadcn/ui + Tailwind v4      — UI component layer
+```
 
-**Babylon.js confirmed.** But we have been using it wrong. The gap between current output
-(grey boxes) and what the engine can produce (warm, lit, textured, shadowed, post-processed)
-is entirely about how we use it — not the engine itself.
+**Why this is worth POCing:**
 
-### What We Are Not Using (and Must)
+The "cozy isometric" aesthetic has been solved many times by the R3F community.
+The reference games in this genre (Townscaper-likes, low-poly village scenes, cozy
+3D) almost universally trace back to Three.js or R3F implementations. There is a
+known recipe and a large body of working examples to reference.
 
-| Feature | Status | Impact |
+Key capabilities relevant to Hiraeth:
+- `<OrthographicCamera>` from drei — isometric view is trivial, zoom is a prop
+- `<SoftShadows>` from drei — accumulation-based soft shadows, the single biggest
+  visual upgrade possible; used in almost every "warm cozy" Three.js scene
+- `<Environment>` — HDR environment map lighting, wraps the scene in ambient colour
+- `<InstancedMesh>` — one draw call for hundreds of identical assets (trees, fences)
+- `@react-three/postprocessing` ships SSAO, DepthOfField, Bloom, Noise, ChromaticAberration,
+  TiltShift — all composable, all pre-written, just configure
+- `MeshStandardMaterial` / `MeshPhysicalMaterial` — full PBR
+- React component model: a `<Building type="cottage" />` component that owns its
+  own geometry, materials, animations (window glow) is the natural way to build this
+
+The UI story is unbeatable: React + shadcn/ui produces genuinely beautiful, modern,
+accessible UI with near-zero effort. An asset picker with tabs, sliders for time-of-day,
+a world/single-asset toggle — all done in one afternoon.
+
+**Risks:**
+- No built-in nav mesh (will need `recast-navigation-js` or similar in Phase 4+)
+- No built-in skeletal animation retargeting (manageable, Three.js has AnimationMixer)
+- Slightly more boilerplate for complex shadow setups vs Babylon's DefaultRenderingPipeline
+
+---
+
+### Candidate B — Babylon.js (direct TypeScript API)
+
+**The stack:**
+```
+@babylonjs/core 9.x          — full-featured 3D engine
+@babylonjs/materials         — PBR extensions, sky material
+@babylonjs/post-processes    — DefaultRenderingPipeline (SSAO2, DOF, bloom)
+React 19 + Vite 6            — UI layer (React overlay on canvas)
+shadcn/ui + Tailwind v4      — UI component layer
+```
+
+**Why this is worth POCing:**
+
+Babylon.js is more batteries-included: nav mesh (Recast.js built in), skeletal
+animation retargeting, physically-based atmosphere, clustered lighting, WebGPU
+first-class. For the full simulation (Phase 4+: hundreds of characters on nav mesh),
+this matters.
+
+Key capabilities:
+- `DefaultRenderingPipeline` — SSAO2, DOF, bloom, image processing, vignette
+- `ShadowGenerator` with PCF filtering
+- `PBRMaterial` — metallic/roughness + clearcoat + subsurface
+- `SkyMaterial` — procedural sky with sun position
+- Clustered forward lighting — handles hundreds of point lights (street lamps at night)
+- `HavokPlugin` or `CannonJSPlugin` for future physics
+
+**Risks:**
+- Previous POC using Babylon.js produced grey boxes — but that was misuse, not the engine
+- Less community art direction for "cozy isometric" — fewer worked examples to reference
+- React/Svelte overlay pattern for UI is more awkward than native R3F (canvas is opaque,
+  UI lives on top, state sharing requires a separate event bus)
+- API surface is large and verbose; easy to do the wrong thing
+
+---
+
+### Decision Matrix
+
+| Criterion | Stack A (R3F) | Stack B (Babylon.js) |
 |---|---|---|
-| `ShadowGenerator` | ❌ missing | Without shadows everything is flat and lifeless |
-| `PBRMaterial` | ❌ using `StandardMaterial` | PBR gives substance and warmth to surfaces |
-| `DefaultRenderingPipeline` (SSAO2, DOF, bloom) | ⚠️ partial | SSAO gives depth; bloom makes window glow read |
-| Procedural / canvas textures | ❌ missing | Brick, stone, grass make materials readable |
-| Proper mesh geometry | ❌ scaled boxes only | Component-built meshes are essential |
-| `SkyMaterial` | ❌ solid clear colour | Dynamic sky gives atmosphere |
+| Cozy 3D aesthetic — community examples | ★★★★★ | ★★★ |
+| Soft shadows quality / ease | ★★★★★ | ★★★★ |
+| Post-processing (SSAO, bloom, DOF) | ★★★★★ | ★★★★ |
+| Component-based building system | ★★★★★ (native) | ★★★ (manual) |
+| UI integration (shadcn/ui) | ★★★★★ (same tree) | ★★★ (overlay) |
+| Day/night cycle examples | ★★★★★ | ★★★★ |
+| Weather (particles, fog) | ★★★★ | ★★★★ |
+| Performance (instancing) | ★★★★★ | ★★★★★ |
+| Nav mesh (Phase 4+) | ★★★ (addon needed) | ★★★★★ (built in) |
+| Skeletal anim retargeting (Phase 3+) | ★★★ (addon) | ★★★★★ (built in) |
+| TypeScript quality | ★★★★★ | ★★★★ |
+| Dev ergonomics / iteration speed | ★★★★★ | ★★★ |
 
-### The Real Problem With Current Output
+**POC-specific verdict (appearance + UI):** Stack A wins clearly.
+**Full-game verdict (simulation depth):** Stack B wins on built-ins.
 
-1. **No shadows** — a scene with no shadows has no depth, no warmth, no time-of-day
-2. **No textures** — flat-coloured boxes with StandardMaterial look like debug geometry
-3. **No detail geometry** — buildings need windows, doors, roofs as actual mesh parts
-4. **No ground character** — grey flat plane reads as nothing; needs grass, paths, hedges
-5. **Placeholder trees** — cones are a stand-in; proper foliage changes the entire feel
-6. **No scale anchors** — without a recognisable element (a post box, a bench, a person) the viewer can't read the scene as a place
+The bet: build the POC in Stack A. If visual quality and UI meet the bar, adopt R3F
+for the main project and accept that nav mesh + retargeting need addons. Both addons
+exist and are maintained. If Stack A POC fails to feel alive and warm, Stack B is there.
 
-### Visual Reference: How Other Games Get "Cozy"
+---
+
+### Visual Reference: What "Cozy" Means Technically
 
 **Townscaper** (Stålberg, 2021):
-- Simple geometry + perfect soft shadows + warm palette = extremely cozy
-- Key: every surface edge is beveled; soft diffuse light from two angles; no specular
-- Lesson: *it is mostly the shadows and the bevel*
+- Simple geometry + perfect **soft shadows** + warm palette = extremely cozy
+- Key: every surface edge is beveled; soft directional light from one high angle; no specular
+- Lesson: *it is the shadows and the bevel. Full stop.*
 
 **Tiny Glade** (Pounce Light, 2024):
-- Real-time mesh growth; stone/wood procedural materials; global illumination baked per-frame
-- Lesson: *material quality and subsurface scattering on stone makes surfaces feel physical*
+- Real-time mesh growth; stone/wood procedural materials; GI baked per-frame
+- Lesson: *material quality — roughness variation across a surface — makes it feel physical*
 
 **A Short Hike** (Robinson-Yu, 2019):
-- Dithered rendering, extremely warm palette, 3D but feels illustrated
+- Dithered rendering, warm palette, 3D but illustrated feel
 - Lesson: *art direction is a decision, not an accident — commit to a specific filter*
 
 **Mini Motorways** (Dinosaur Polo Club, 2021):
-- Flat design but strong shadows (drop shadows on roads), warm ground colour
-- Lesson: *even flat-looking games use shadow to read depth*
+- Technically "flat" but strong directional shadow and warm ground colour
+- Lesson: *even minimal design reads as place because of shadow depth*
 
-**Key takeaway for Phase 0.5**: The rendering pipeline (shadows + PBR + post-processing) must
-be established first. Even simple geometry looks good under correct lighting. Even good geometry
-looks bad without it.
+**Concrete lessons for the POC:**
+1. Soft shadows are the single highest-impact thing. Ship nothing without them.
+2. A beveled/chamfered edge on every building reads as "crafted", not "debug box"
+3. The emissive window glow at night is load-bearing for the "life" feeling — it's what makes you feel someone is home
+4. Ground material (grass texture, path gravel, road tarmac) is what makes a scene read as a real place, not a grey plane
+5. Weather (rain, overcast light, wet ground reflection) transforms mood completely
+6. The UI must feel like the game — warm, slightly aged, unhurried
 
 ---
 

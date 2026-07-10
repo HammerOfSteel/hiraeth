@@ -1,173 +1,157 @@
 # Hiraeth — Development Phases & Tasks
 
 > This is a living document. Tasks move, split, and clarify as work progresses.
-> Each phase should be independently playable/demonstrable.
-> **Workflow:** one branch per phase (`phase/N-name`), commit per task, tests at end gate the merge to `main`.
+> **Before Phase 0:** two POCs are built to validate tech stack choice. Everything after
+> depends on which POC wins. No assumptions. Evidence before commitment.
 
 ---
 
-## ✅ Phase 0 — Foundation *(complete)*
-*Goal: A working canvas with a camera, a terrain, and a basic build pipeline.*
+## 🔄 Pre-Phase 0 — POC: Tech Stack Shootout
 
-### Project Setup
-- [] Initialise Vite + TypeScript project
-- [] Install and configure Babylon.js 9
-- [] Set up Svelte 5 as UI overlay with vite-plugin-svelte
-- [] Configure `tsconfig.json` with strict mode
-- [] Set up path aliases (`@world`, `@sim`, `@ui`, etc.)
-- [] Add tweakpane for dev parameter controls
-- [] Set up basic `index.html` with canvas + Svelte mount point
-- [] Create `SceneManager.ts` — engine init, scene, WebGPU/WebGL2 selection
+*Goal: Build the same scene in two different stacks. Pick the one that looks better,
+feels better to develop, and has a credible path to the full game.*
 
-### Camera
-- [] Implement `IsometricCamera.ts` — arc-rotate with constrained angle
-- [] Mouse scroll zoom (smooth, clamped)
-- [] Middle-click drag pan
-- [] Q/E rotation snapping to 45° increments
-- [] Home key to reset view
-- [] Touch gesture support (pinch zoom, two-finger pan)
+**Both POCs must demonstrate:**
+- 10 named building types with real geometry (no boxes)
+- Isometric orthographic camera with smooth scroll zoom
+- Emissive window glow at night; dark glass by day
+- Street lamp point lights activated at dusk
+- Day/night cycle: sun arc, sky colour shift, shadow direction
+- Weather: rain particles + overcast fog
+- Town assets: park (grass, path, benches, trees), playground, paved roads with pavements
+- Modern UI: asset picker (choose a building type, view it solo) + world view toggle
 
-### Render Loop
-- [] `RenderLoop.ts` with RAF loop
-- [] Delta time tracking
-- [] Basic performance monitor overlay (FPS, draw calls)
-
-### ✅ Phase 0 Tests — 16/16 passing
+**POC live in `poc/stack-a/` and `poc/stack-b/` — separate Vite projects within this repo.**
 
 ---
 
-## 🔄 Phase 0.5 — Visual Foundation *(current focus)*
-*Goal: Before anything else, the world must look and feel right — cozy, warm, and alive.
-Nothing proceeds until looking at the scene for 60 seconds produces the feeling of hiraeth.
-This phase is about building the visual vocabulary and asset language of the game.*
+### POC A — Three.js + React Three Fiber
 
-> **Why this phase exists:** Early prototyping produced a functional but lifeless world — grey
-> flat plane, scaled boxes, cone trees, perfectly straight roads. The aesthetic didn't match
-> the emotional promise of the game. Phase 0.5 rebuilds the visual layer from first principles,
-> establishing each asset type properly before world generation is built on top of it.
+**Stack:** `three` + `@react-three/fiber` + `@react-three/drei` +
+`@react-three/postprocessing` + `zustand` + `shadcn/ui` + `Tailwind v4` + `Vite 6`
 
-### 0.5.1 — Tech Stack Confirmation & Rendering Pipeline
-*Confirm Babylon.js is the right choice and enable the full render quality it supports.*
-- [ ] Research: evaluate Three.js vs Babylon.js vs custom WebGPU for this use case
-- [ ] Confirm or revise engine decision — document reasoning in `tech.md`
-- [ ] Enable `DefaultRenderingPipeline` with SSAO2, DOF, bloom, chromatic aberration
-- [ ] Implement `ShadowGenerator` on directional sun light — all objects cast + receive shadows
-- [ ] Switch buildings to `PBRMaterial` (physically-based) instead of `StandardMaterial`
-- [ ] Implement warm overcast sky using `SkyMaterial` or CubeTexture skybox
-- [ ] Validate: scene at golden hour should feel warm and inviting, not clinical
+#### Setup
+- [ ] Scaffold Vite + React + TypeScript project in `poc/stack-a/`
+- [ ] Install three, @react-three/fiber, @react-three/drei, @react-three/postprocessing
+- [ ] Install zustand, shadcn/ui, tailwindcss v4
+- [ ] Configure path aliases and strict TypeScript
 
-### 0.5.2 — Building Component System
-*Buildings are composed of parts — not scaled boxes. Each part is a reusable mesh component.*
-- [ ] Design `BuildingBlueprint` data structure: type, floors, width, depth, roof style, wall material, age
-- [ ] Design `BuildingComponent` system: wall panel, window, door, roof, chimney, foundation
-- [ ] `WallPanel.ts` — flat quad with UV; supports procedural brick/stone/render texture
-- [ ] `WindowComponent.ts` — frame mesh + glass pane; emissive at night; curtain variation
-- [ ] `DoorComponent.ts` — door frame + door leaf; colour variation per building
-- [ ] `RoofMesh.ts` — pitched, hipped, mansard, flat; generates correct geometry per blueprint
-- [ ] `ChimneyStack.ts` — rectangular stack with pot detail; 0–3 per residential roof
-- [ ] `FoundationPlinth.ts` — low base course, slightly wider than walls, stone material
-- [ ] `BuildingFactory.ts` — assembles components from blueprint; returns merged mesh
+#### Rendering Pipeline
+- [ ] `<OrthographicCamera>` from drei — fixed isometric angle (35.26° elevation, 45° azimuth)
+- [ ] Scroll zoom mapped to camera frustum size (smooth, clamped min/max)
+- [ ] `<SoftShadows>` from drei — accumulation soft shadows on all objects
+- [ ] `<Environment>` — HDR environment lighting (overcast British sky preset)
+- [ ] Post-processing: SSAO, Bloom (window glow), DepthOfField (tilt-shift feel), Vignette
 
-### 0.5.3 — Building Type Library
-*A set of recognisable British building types generated from the component system.*
-- [ ] **Cottage** — 1 storey, low pitched roof, thick walls, small windows, chimney, front door offset
-- [ ] **Terraced house** — 2 storey, shared side walls, sash windows, chimney stacks, small front garden
-- [ ] **Semi-detached** — 2 storey, paired plan, bay window on ground floor, small side passage
-- [ ] **Detached house** — 2 storey, larger footprint, garage or side extension
-- [ ] **Bungalow** — 1 storey + dormer windows, wide plan, larger rear garden
-- [ ] **Shop / high-street unit** — 1–2 storey, wide display window, flat or parapet roof, fascia sign space
-- [ ] **Pub** — 2 storey, large ground-floor windows, hanging sign bracket, beer garden terrace
-- [ ] **Church** — nave + aisle, pitched roof, tower or bellcote, arched windows, churchyard wall
-- [ ] **Civic building** — 2–3 storey, symmetrical facade, larger windows, shallow steps at entrance
-- [ ] **Apartment block** — 3–5 storey, regular window grid, flat roof, communal entrance
-- [ ] Each type: 3 material/age variants (new-build, established, aged) for visual diversity
+#### Buildings (10 types)
+- [ ] `BuildingFactory` — assembles building from typed blueprint spec
+- [ ] Geometry helpers: wall panel, window frame, door, pitched roof, chimney, foundation plinth
+- [ ] **Cottage** — 1 floor, thick stone walls, low pitch, 2 chimneys, front door offset
+- [ ] **Terraced house** — 2 floor, party walls, sash windows, shared chimney stack
+- [ ] **Semi-detached** — 2 floor, paired plan, bay window on ground floor
+- [ ] **Detached** — 2 floor, larger footprint, side path
+- [ ] **Bungalow** — 1 floor + dormers, wide plan
+- [ ] **Shop / high-street unit** — wide display window, parapet roof, fascia sign space
+- [ ] **Pub** — large windows, hanging sign bracket, rear terrace
+- [ ] **Church** — nave + tower, arched windows, churchyard wall
+- [ ] **Civic / library** — 2–3 floor, symmetrical, steps at entrance
+- [ ] **Apartment block** — 4 floor, regular window grid, flat roof, communal door
 
-### 0.5.4 — Building Life: Windows & Interior Glow
-*Buildings must feel inhabited, not rendered.*
-- [ ] Day glass: dark material with subtle specular — windows look like real glass
-- [ ] Dusk/night: emissive warm orange/yellow per window — driven by time-of-day + occupancy
-- [ ] `WindowLightManager.ts` — schedules per building; not all lights on at same time
-- [ ] Curtain geometry (lace, venetian, blackout) — variation per building age/type
-- [ ] Interior depth illusion: very shallow dark box behind glass gives depth feeling
+#### Lighting & Life
+- [ ] `WindowMaterial` — glass by day; emissive warm amber at night per `timeOfDay`
+- [ ] `WindowScheduler` — stagger lights across building; not all on at once
+- [ ] `StreetLamp` asset — Victorian post, lantern, point light at dusk
+- [ ] Interior depth: shallow dark recess behind glass
 
-### 0.5.5 — Ground & Terrain Surface
-*The ground is not a grey plane. It is grass, stone, soil, gravel.*
-- [ ] Procedural grass texture (canvas-based) — warm mid-green, not vivid
-- [ ] Procedural pavement/path material — tarmac or stone flags near roads
-- [ ] Procedural garden soil — for front/rear garden zones
-- [ ] Field boundary hedges — row of low mesh hedges separating plots and roads
-- [ ] Grass variation: lighter patches, worn trackways between buildings
-- [ ] Ground vertex colour zones refined: valley floor green, hillside warm brown, moorland grey-green
+#### Day / Night Cycle
+- [ ] `<directionalLight>` angle and colour animated by `timeOfDay` state (0–24h)
+- [ ] Sky colour: dawn pink → overcast grey → golden afternoon → deep blue night
+- [ ] Ambient light intensity drop at night; moon ambient: very faint blue
+- [ ] Star field (instanced points) visible at night through sky
 
-### 0.5.6 — Town & Street Assets
-*The detail layer that makes a place feel real.*
-- [ ] **Trees V2**: hemisphere canopy + tapered trunk; 4 species variants (oak, ash, birch, conifer); seasonal colour params
-- [ ] **Hedgerow**: repeating low box with rough-top profile; planted along plot boundaries
-- [ ] **Garden wall**: low brick wall section; modular tiles, corner pieces
-- [ ] **Street lamp**: cast-iron Victorian post + lantern head; emissive glow at night
-- [ ] **Post box**: cylindrical red box on short post; GR or EIIR cypher detail
-- [ ] **Bench**: two plank boards + four legs; near bus stops, parks, high street
-- [ ] **Bus shelter**: flat roof + three acrylic panels; illuminated timetable panel
-- [ ] **Bins**: wheelie bin pair (black + recycling blue) at residential plot edges
-- [ ] **Garden gate**: wooden picket or iron bar; at front garden boundary
-- [ ] **Park**: grass area + path + bench cluster + flower beds + maybe a pond
-- [ ] **Playground**: within park area; swings frame + slide + roundabout geometry
-- [ ] **Car park**: marked bays (road-paint lines) + kerb stones + dropped kerb
-- [ ] **Phone box**: classic K6 red box; rare placement, high-street or village green
-- [ ] All assets: scale-appropriate, material-consistent, no floating or clipping
+#### Weather
+- [ ] Rain: `<Points>` instanced particle rain; animated downward velocity
+- [ ] Overcast: sky uniform shifts cooler + darker; ambient drops
+- [ ] Ground wet: MeshPhysicalMaterial clearcoat on roads + paths when raining
+- [ ] Fog: `<fog>` attach to scene; density varies by weather state
 
-### 0.5.7 — Road System V2
-*Roads that look like roads: curved, textured, with pavements and markings.*
-- [ ] Spline-based road generation using Babylon.js `Curve3` (Catmull-Rom through waypoints)
-- [ ] `RoadMesh.ts` — ribbon mesh along spline; separate left/right pavement strips
-- [ ] Road surface procedural texture: tarmac grey with slight aggregate variation
-- [ ] Road markings: centre line, edge line (canvas texture on UV-mapped road mesh)
-- [ ] Junction geometry: intersection fill mesh at road crossings
-- [ ] Dropped kerbs at pedestrian crossings
-- [ ] Pavements / footpaths: lighter stone-coloured flat strip beside road
-- [ ] Road types: main road (wider), side street (narrower), lane/track (narrowest, unsealed)
-- [ ] Gentle curves everywhere — no perfectly straight road segments except motorway (out of scope)
+#### Town Assets
+- [ ] **Road** — spline ribbon mesh with pavement strips, tarmac material, centre line texture
+- [ ] **Park** — grass quad, gravel path, benches (3D), flower beds, pond (optional)
+- [ ] **Playground** — swings frame, slide, roundabout; within park area
+- [ ] **Trees** — hemisphere canopy + trunk; 3 broadleaf variants, 1 conifer
+- [ ] **Hedge** — low extruded profile; garden + road boundary
+- [ ] **Street lamp**, **post box**, **bench**, **bus shelter** — scale-correct, textured
+- [ ] **Garden wall** — low brick sections + corner pieces
 
-### 0.5.8 — Vehicles (Visual Pass)
-*Vehicles exist as visible objects — behaviour comes in Phase 4+.*
-- [ ] Base `VehicleMesh.ts` component system: body shell + wheels + windows + lights
-- [ ] **Car** — saloon / hatchback / estate; 5 colour variants; procedural wheel rim detail
-- [ ] **Van** — transit-style; white; ladders/gear on roof optional
-- [ ] **Bus** — double-decker; red or local-authority cream; destination blind
-- [ ] **Bike** — bicycle frame + wheels; leaned against walls or ridden
-- [ ] Parked cars placed in car parks and along roadside verges
-- [ ] Headlights: emissive white; tail lights: emissive red — toggled by time of day
-- [ ] No movement yet — placed as static scene props this phase
+#### UI (shadcn/ui + React)
+- [ ] Full-page layout: dark sidebar left + 3D canvas right
+- [ ] Asset picker: tabs for Buildings / Roads / Assets / Characters
+- [ ] Each tab: grid of cards with building name + small preview thumbnail
+- [ ] Click a card → scene switches to single-asset view (isolated, lit, rotatable)
+- [ ] "World View" button → switches to assembled town scene
+- [ ] Time-of-day slider (0–24h) → drives `timeOfDay` state
+- [ ] Weather selector: Clear / Overcast / Rain
+- [ ] UI palette: warm parchment + slate dark — game aesthetic, not SaaS
 
-### 0.5.9 — Character Visual Design
-*Characters that look like people, not coloured capsules.*
-- [ ] Design character mesh vocabulary: head, torso, legs, feet, hands
-- [ ] `CharacterMesh.ts` — low-poly humanoid (~400–600 tris); modular clothing layers
-- [ ] Body type variation: height, build (slim/average/stocky) via bone scaling
-- [ ] Skin tone palette (10 values, warm through cool)
-- [ ] Hair: 6 silhouette styles (short, medium, long, bald, bun, cap); colour variation
-- [ ] Clothing layers: top, trousers/skirt, coat, shoes — colour parameterised
-- [ ] Age markers: greyer hair, slightly more hunched posture for elderly
-- [ ] `CharacterPaletteGenerator.ts` — generates a visually distinct person from seed
-- [ ] Walk cycle: procedural sine-wave limb animation (no keyframes required)
-- [ ] Characters cast shadows; readable silhouette at isometric zoom
+---
 
-### Phase 0.5 Deliverable
-> Pan across a generated scene. You see:
-> a village green with a proper church on one side and a pub on the other,
-> brick terraced houses with lit windows at dusk, a person walking past,
-> a red post box on the corner, a bus shelter with a timetable,
-> roads that gently curve between hedgerows and garden walls.
-> You feel warmth. You feel like somewhere real exists here.
+### POC B — Babylon.js (direct TypeScript API)
 
-### Phase 0.5 Tests
-- [ ] Visual: 60-second look test — scene must feel warm, inhabited, and specific
-- [ ] `vitest` — `BuildingFactory` with cottage blueprint produces mesh taller than it is wide
-- [ ] `vitest` — `WindowLightManager` returns `emissive=true` for residential at hour=20
-- [ ] `vitest` — `WindowLightManager` returns `emissive=false` at hour=03 for all building types
-- [ ] `vitest` — `RoadMesh` spline has length > 0 for any two non-identical waypoints
-- [ ] `vitest` — `CharacterPaletteGenerator` returns unique palette for 100 consecutive seeds
-- [ ] `vitest` — No two parked vehicles overlap given a standard car-park layout
+**Stack:** `@babylonjs/core 9.x` + `@babylonjs/materials` + `React` + `shadcn/ui` + `Vite 6`
+
+#### Setup
+- [ ] Scaffold Vite + TypeScript project in `poc/stack-b/`
+- [ ] Install @babylonjs/core, @babylonjs/materials, @babylonjs/post-processes
+- [ ] Install React, shadcn/ui, tailwindcss v4
+- [ ] Configure path aliases and strict TypeScript
+
+#### Rendering Pipeline
+- [ ] Orthographic camera at fixed isometric angle; scroll zoom
+- [ ] `ShadowGenerator` (PCF) on directional sun light; all meshes cast + receive
+- [ ] `DefaultRenderingPipeline`: SSAO2, Bloom, DepthOfField, ChromaticAberration, Vignette
+- [ ] `SkyMaterial` for procedural sky with sun position
+- [ ] `PBRMaterial` on all geometry (no StandardMaterial)
+
+#### Buildings (same 10 types as POC A)
+- [ ] Same blueprint spec, same 10 building types
+- [ ] `MeshBuilder` + `VertexData` for wall, roof, window, door, chimney geometry
+- [ ] `PBRMaterial` per surface type: brick, stone, render, tarmac, glass
+
+#### Lighting, Life, Day/Night, Weather, Town Assets
+- [ ] Same feature set as POC A — implemented in Babylon.js API
+
+#### UI
+- [ ] Same UI spec as POC A — React + shadcn/ui overlay on canvas
+
+---
+
+### POC Evaluation Criteria
+After both POCs are built and running, score each on:
+
+| Criterion | POC A score | POC B score |
+|---|---|---|
+| Visual warmth at golden hour | /10 | /10 |
+| Visual quality of rain + night | /10 | /10 |
+| Building geometry quality | /10 | /10 |
+| UI feel — does it capture hiraeth? | /10 | /10 |
+| Dev iteration speed | /10 | /10 |
+| Shadow quality | /10 | /10 |
+| **Total** | /60 | /60 |
+
+Winner proceeds. Loser is archived.
+
+---
+
+## ⏳ Phase 0 — Foundation *(pending — stack TBD after POC)*
+*Goal: A production-quality project scaffold using the winning POC stack.*
+*All tasks here are placeholders — they will be refined once the POC winner is known.*
+
+- [ ] Production project scaffold in `src/` (winning stack)
+- [ ] Strict TypeScript config + path aliases
+- [ ] Linting + formatting
+- [ ] Test runner configured
+- [ ] CI: lint + test on push
 
 ---
 
