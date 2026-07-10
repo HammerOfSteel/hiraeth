@@ -133,6 +133,8 @@ export class IsometricCamera {
   // ── Private helpers ──────────────────────────────────────────────────────────
 
   private _bindKeys(scene: Scene): void {
+    if (typeof window === 'undefined') return   // no-op in headless/test env
+
     window.addEventListener('keydown', (e: KeyboardEvent) => {
       switch (e.key) {
         case 'q':
