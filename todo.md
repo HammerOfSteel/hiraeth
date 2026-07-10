@@ -2,6 +2,7 @@
 
 > This is a living document. Tasks move, split, and clarify as work progresses.
 > Each phase should be independently playable/demonstrable.
+> **Workflow:** one branch per phase (`phase/N-name`), commit per task, tests at end gate the merge to `main`.
 
 ---
 
@@ -32,6 +33,13 @@
 - [ ] Basic performance monitor overlay (FPS, draw calls)
 
 ### Deliverable: A working camera that can orbit a placeholder scene
+
+### Phase 0 Tests
+- [ ] `vitest` — `SceneManager` creates engine and scene without throwing (NullEngine)
+- [ ] `vitest` — `IsometricCamera` alpha/beta/radius stay within defined bounds after clamping
+- [ ] `vitest` — `RenderLoop` reports positive delta time on first tick
+- [ ] `vitest` — Path aliases resolve correctly (import `@engine/SceneManager`)
+- [ ] Manual: `npm run dev` opens in browser, placeholder box visible, camera orbits on drag
 
 ---
 
@@ -79,6 +87,14 @@
 
 ### Deliverable: A convincing procedural British valley with roads and rough building footprints
 
+### Phase 1 Tests
+- [ ] `vitest` — `TerrainGenerator` heightmap values stay within `[0, 1]` for any seed
+- [ ] `vitest` — `TerrainGenerator` valley floor (centre column) is the lowest region
+- [ ] `vitest` — `RoadNetwork` graph is fully connected (all nodes reachable from main road start)
+- [ ] `vitest` — Parcel polygons have no overlapping area
+- [ ] `vitest` — World generation completes in < 5000ms (perf assertion)
+- [ ] Manual: terrain has visible valley, river, roads, and colour-coded parcel boxes
+
 ---
 
 ## Phase 2 — Atmosphere
@@ -113,6 +129,14 @@
 - [ ] Snow coverage blending on terrain and roof geometry
 
 ### Deliverable: Walk through the world at different times and seasons — feels alive
+
+### Phase 2 Tests
+- [ ] `vitest` — Sun azimuth at hour=12 is within 5° of zenith
+- [ ] `vitest` — `WeatherSystem` only transitions to valid next states per the state machine map
+- [ ] `vitest` — Summer solstice daylight hours > 14h; winter solstice < 10h
+- [ ] `vitest` — `WeatherSystem` never reaches Snow state when season is Summer
+- [ ] Manual: step through 24 hours — sky, fog, and lighting shift correctly
+- [ ] Manual: trigger rain — particles appear, road material darkens
 
 ---
 
@@ -150,6 +174,13 @@
 - [ ] Wheelie bins and hedges at residential properties
 
 ### Deliverable: A detailed, believable town that looks gorgeous at night
+
+### Phase 3 Tests
+- [ ] `vitest` — `BuildingSpec` 2-storey mesh is taller than 1-storey mesh
+- [ ] `vitest` — Victorian terrace generates more windows per facade than bungalow
+- [ ] `vitest` — Window lights are ON at hour=20, OFF at hour=03
+- [ ] `vitest` — No two buildings in a parcel list have overlapping bounding boxes
+- [ ] Manual: zoom in on high street at night — windows glow, lamp posts lit, pub sign visible
 
 ---
 
@@ -192,6 +223,14 @@
 - [ ] Character speed variation by age, mood, urgency
 
 ### Deliverable: 50–100 characters moving around the town with basic schedules
+
+### Phase 4 Tests
+- [ ] `vitest` — `NameGenerator` never returns empty string for any seed + age cohort
+- [ ] `vitest` — `CharacterFactory` produces unique ECS entity IDs for 500 consecutive characters
+- [ ] `vitest` — All personality trait values are clamped to `[0, 1]`
+- [ ] `vitest` — `MovementSystem` tick updates `Position` component when agent has a target
+- [ ] `vitest` — Nav mesh path query returns length > 0 between two reachable points
+- [ ] Manual: 100 characters in scene, all moving, none stuck or clipping buildings
 
 ---
 
@@ -247,6 +286,16 @@
 - [ ] Character emigration (young adults who leave town)
 
 ### Deliverable: A self-running simulation where following a character for 30 minutes tells a story
+
+### Phase 5 Tests
+- [ ] `vitest` — `NeedsSystem` hunger value decreases after N ticks without eating
+- [ ] `vitest` — `NeedsSystem` hunger is capped at 1.0 and never goes below 0
+- [ ] `vitest` — Mood derivation produces lower value when multiple needs are critical
+- [ ] `vitest` — `ScheduleSystem` assigns a goal for every active character each day
+- [ ] `vitest` — Relationship warmth between two characters increases after a positive interaction
+- [ ] `vitest` — Gossip information reaches 3 hops after sufficient conversation events
+- [ ] `vitest` — Business revenue = 0 when zero customers visit in a day
+- [ ] Manual: follow one character for 10 sim-minutes — watch them eat, work, socialise
 
 ---
 
@@ -305,6 +354,14 @@
 - [ ] Smooth transition animation between modes
 
 ### Deliverable: A complete, polished UI that feels like part of the world
+
+### Phase 6 Tests
+- [ ] `vitest` — `EventBus` delivers events to all registered Svelte subscribers
+- [ ] `vitest` — `EventBus` does not deliver events to unsubscribed listeners
+- [ ] `vitest` — Clock display formats `{ day: 1, hour: 9, minute: 5 }` as `"Mon 09:05am"`
+- [ ] `vitest` — Minimap pixel at world origin maps to canvas centre
+- [ ] Manual: open character panel, follow a character, watch their needs and schedule update live
+- [ ] Manual: UI dims correctly at night; top bar readable in all weather states
 
 ---
 
