@@ -56,7 +56,16 @@ async function bootstrap(): Promise<void> {
     })
 
     // World parameters
-    pane.addBinding(worldCfg, 'seed',        { label: 'Seed', step: 1 })
+    pane.addBinding(worldCfg, 'seed',           { label: 'Seed', step: 1 })
+    pane.addBinding(worldCfg, 'settlementType', {
+      label: 'Settlement',
+      options: {
+        'Valley Town':       'valley_town',
+        'Linear Village':    'linear_village',
+        'Hamlet':            'hamlet',
+        'Nucleated Village': 'nucleated_village',
+      },
+    })
     pane.addBinding(worldCfg, 'valleyWidth', { label: 'Valley width', min: 0.1, max: 0.9, step: 0.01 })
     pane.addBinding(worldCfg, 'hilliness',   { label: 'Hilliness',    min: 0.1, max: 1.0, step: 0.01 })
     pane.addBinding(worldCfg, 'coastal',     { label: 'Coastal' })

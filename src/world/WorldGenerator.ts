@@ -12,9 +12,10 @@ import { TerrainMesh } from './TerrainMesh'
 import { RiverSystem } from './RiverSystem'
 import { WaterBodies } from './WaterBodies'
 import { RoadNetwork, type RoadGraph } from './RoadNetwork'
-import { ParcelGenerator, type Parcel } from './Parcel'
+import { type Parcel } from './Parcel'
 import { BuildingPlacer } from './BuildingPlacer'
 import { VegetationPlacer } from './VegetationPlacer'
+import { SettlementLayout, type SettlementType } from './SettlementLayout'
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ export interface WorldConfig extends TerrainConfig {
   populationDensity: number  // 0.1–1.0
   treeDensity: number        // 0.0–1.0
   maxTrees: number           // hard cap on tree instances
+  settlementType: SettlementType
 }
 
 export const DEFAULT_WORLD_CONFIG: WorldConfig = {
@@ -36,6 +38,7 @@ export const DEFAULT_WORLD_CONFIG: WorldConfig = {
   populationDensity: 0.6,
   treeDensity: 0.28,
   maxTrees: 800,
+  settlementType: 'valley_town',
 }
 
 export interface WorldResult {
@@ -77,8 +80,10 @@ export class WorldGenerator {
       meshes.push(WaterBodies.createRiver(river, this.scene))
     }
 
-    // 4 ── Road graph ─────────────────────────────────────────────────────────
-    const roadGraph = RoadNetwork.generate(heightmap, config.seed)
+    // 4 ── Settlement layout (road graph + parcels) ───────────────────────────
+    const { roadGraph, parcels } = SettlementLayout.generate(
+      heightmap, config.seed, config.settlementType ?? 'valley_town',
+    )
 
     // 5 ── Road meshes (flat boxes per edge) ──────────────────────────────────
     const nodeMap = new Map(roadGraph.nodes.map(n => [n.id, n]))
@@ -103,7 +108,6 @@ export class WorldGenerator {
     }
 
     // 6 ── Parcels + buildings ─────────────────────────────────────────────────
-    const parcels = ParcelGenerator.generate(roadGraph)
     const bldMeshes = this._buildingPlacer.place(parcels)
     meshes.push(...bldMeshes)
 
