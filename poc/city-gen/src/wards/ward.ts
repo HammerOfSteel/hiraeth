@@ -4,7 +4,7 @@
 // Concrete subclasses live in src/wards/*.ts (Phase 3).
 
 import { Pt } from '../geom/pt'
-import { type Polygon, polyForEdge, polyShrinkEq, polyBufferEq, polySquare, polyIsConvex, polyCenter, polyGetBounds } from '../geom/polygon'
+import { type Polygon, polyForEdge, polyShrink, polyBuffer, polySquare, polyIsConvex, polyCut, polyFindEdge, polyGetBounds } from '../geom/polygon'
 import { cross } from '../geom/geomUtils'
 import { bisect } from '../model/cutter'
 import type { Patch } from '../model/patch'
@@ -44,8 +44,7 @@ export abstract class Ward {
       } else {
         let onStreet = innerPatch && (
           this.model.plaza != null &&
-          this.model.plaza.shape.indexOf(v1) !== -1 &&
-          this.model.plaza.shape.indexOf(v0) !== -1
+          polyFindEdge(this.model.plaza.shape, v1, v0) !== -1
         )
         if (!onStreet) {
           for (const street of this.model.arteries) {
@@ -60,8 +59,8 @@ export abstract class Ward {
 
     try {
       return polyIsConvex(this.patch.shape)
-        ? polyShrinkEq(this.patch.shape, insetDist[0])
-        : polyBufferEq(this.patch.shape, insetDist[0])
+        ? polyShrink(this.patch.shape, insetDist)
+        : polyBuffer(this.patch.shape, insetDist)
     } catch {
       return [...this.patch.shape]
     }
@@ -127,11 +126,12 @@ export abstract class Ward {
    * Recursively create orthogonal buildings from a block.
    * Port of Ward.createOrthoBuilding — used by Castle/Cathedral.
    */
-  static createOrthoBuilding(poly: Polygon, minBlockSq: number, fill: number): Polygon[] {
+  static createOrthoBuilding(poly: Polygon, minBlockSq: number, fill: number, rng: () => number = Math.random): Polygon[] {
+    // Returns the start vertex of the longest edge
     function findLongestEdge(pp: Polygon): Pt {
       let v = pp[0], maxLen = -1
-      polyForEdge(pp, (p0, _) => {
-        const len = Pt.distance(p0, polyCenter(pp))
+      polyForEdge(pp, (p0, p1) => {
+        const len = Pt.distance(p0, p1)
         if (len > maxLen) { maxLen = len; v = p0 }
       })
       return v
@@ -141,18 +141,16 @@ export abstract class Ward {
       const v0 = findLongestEdge(pp)
       const v1 = pp[(pp.indexOf(v0) + 1) % pp.length]
       const ev = v1.subtract(v0)
-      const ratio = 0.4 + Math.random() * 0.2
-      const p1 = new Pt(v0.x + ev.x * ratio, v0.y + ev.y * ratio)
+      const ratio = 0.4 + rng() * 0.2
+      const p1 = v0.add(ev.scale(ratio))
       const c  = Math.abs(cross(ev.x, ev.y, c1.x, c1.y)) < Math.abs(cross(ev.x, ev.y, c2.x, c2.y)) ? c1 : c2
-      const halves = (pp as Polygon & { cut: (a: Pt, b: Pt) => Polygon[] }).cut
-        ? (pp as unknown as { cut: (a: Pt, b: Pt) => Polygon[] }).cut(p1, p1.add(c))
-        : [pp]
+      const halves = polyCut(pp, p1, p1.add(c))
 
       const result: Polygon[] = []
       for (const h of halves) {
         const sq = Math.abs(polySquare(h))
-        if (sq < minBlockSq * Math.pow(2, (Math.random() * 2 - 1))) {
-          if (Math.random() < fill) result.push(h)
+        if (sq < minBlockSq * Math.pow(2, rng() * 2 - 1)) {
+          if (rng() < fill) result.push(h)
         } else {
           result.push(...slice(h, c1, c2))
         }
@@ -164,9 +162,10 @@ export abstract class Ward {
     const v0 = findLongestEdge(poly)
     const c1 = poly[(poly.indexOf(v0) + 1) % poly.length].subtract(v0)
     const c2 = c1.rotate90()
-    while (true) {
+    for (let attempt = 0; attempt < 20; attempt++) {
       const blocks = slice(poly, c1, c2)
       if (blocks.length > 0) return blocks
     }
+    return [poly]
   }
 }

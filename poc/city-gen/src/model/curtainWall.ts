@@ -27,11 +27,12 @@ export class CurtainWall {
 
       if (real) {
         const smoothFactor = Math.min(1, 40 / patches.length)
-        // Smooth non-reserved vertices
+        // Smooth non-reserved vertices IN-PLACE so patch Pt references stay valid
         const smoothed = polySmoothVertexEq(this.shape, smoothFactor)
         for (let i = 0; i < this.shape.length; i++) {
           if (!reserved.includes(this.shape[i])) {
-            this.shape[i] = smoothed[i]
+            this.shape[i].x = smoothed[i].x
+            this.shape[i].y = smoothed[i].y
           }
         }
       }
