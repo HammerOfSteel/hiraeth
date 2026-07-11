@@ -1,129 +1,180 @@
 /**
- * Renderer — port of com.watabou.citygenerator.CityMap.hx
+ * Renderer — near-exact port of Watabou's CityMap.hx visual output.
  *
- * Draws the city to a Canvas 2D context.
- * Coordinate system: model uses centred coordinates (origin = plaza).
- * We translate to canvas centre.
+ * All stroke/fill values match the original Palette + Brush constants:
+ *   NORMAL_STROKE = 0.300 world units
+ *   THICK_STROKE  = 1.800 world units
+ *   MAIN_STREET   = 2.000 world units
+ *   ALLEY         = 0.600 world units
+ *
+ * Each palette is { paper, light, medium, dark } as hex strings,
+ * matching Palette.hx exactly.
  */
 import { Pt } from '../geom/pt'
 import { type Polygon } from '../geom/polygon'
 import { type CityData } from '../model/model'
+import { MAIN_STREET } from '../model/ward'
 
-const SCALE = 2.2   // world units → pixels per unit
+// ─── Palettes (exact Palette.hx values) ──────────────────────────────────────
 
-function worldToCanvas(p: Pt, cx: number, cy: number): [number, number] {
-  return [cx + p.x * SCALE, cy + p.y * SCALE]
+export interface Palette {
+  paper:  string
+  light:  string
+  medium: string
+  dark:   string
 }
 
-function polyPath(ctx: CanvasRenderingContext2D, poly: Polygon, cx: number, cy: number): void {
+export const PALETTES: Record<string, Palette> = {
+  Default:   { paper: '#ccc5b8', light: '#99948a', medium: '#67635c', dark: '#1a1917' },
+  Blueprint: { paper: '#455b8d', light: '#7383aa', medium: '#a1abc6', dark: '#fcfbff' },
+  'B&W':     { paper: '#ffffff', light: '#cccccc', medium: '#888888', dark: '#000000' },
+  Ink:       { paper: '#cccac2', light: '#9a979b', medium: '#6c6974', dark: '#130f26' },
+  Night:     { paper: '#000000', light: '#402306', medium: '#674b14', dark: '#99913d' },
+  Ancient:   { paper: '#ccc5a3', light: '#a69974', medium: '#806f4d', dark: '#342414' },
+  Colour:    { paper: '#fff2c8', light: '#d6a36e', medium: '#869a81', dark: '#4c5950' },
+}
+
+// ─── Brush stroke constants (world units) ────────────────────────────────────
+
+const NORMAL_STROKE = 0.300
+const THICK_STROKE  = 1.800
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+type ToCanvas = (p: Pt) => [number, number]
+
+function polyPath(ctx: CanvasRenderingContext2D, poly: Polygon, toC: ToCanvas): void {
+  if (poly.length < 2) return
   ctx.beginPath()
-  const [x0, y0] = worldToCanvas(poly[0], cx, cy)
-  ctx.moveTo(x0, y0)
-  for (let i = 1; i < poly.length; i++) {
-    const [x, y] = worldToCanvas(poly[i], cx, cy)
-    ctx.lineTo(x, y)
-  }
+  const [x0, y0] = toC(poly[0]); ctx.moveTo(x0, y0)
+  for (let i = 1; i < poly.length; i++) { const [x, y] = toC(poly[i]); ctx.lineTo(x, y) }
   ctx.closePath()
 }
 
-function linePath(ctx: CanvasRenderingContext2D, pts: Pt[], cx: number, cy: number): void {
+function linePath(ctx: CanvasRenderingContext2D, pts: Pt[], toC: ToCanvas): void {
+  if (pts.length < 2) return
   ctx.beginPath()
-  const [x0, y0] = worldToCanvas(pts[0], cx, cy)
-  ctx.moveTo(x0, y0)
-  for (let i = 1; i < pts.length; i++) {
-    const [x, y] = worldToCanvas(pts[i], cx, cy)
-    ctx.lineTo(x, y)
-  }
+  const [x0, y0] = toC(pts[0]); ctx.moveTo(x0, y0)
+  for (let i = 1; i < pts.length; i++) { const [x, y] = toC(pts[i]); ctx.lineTo(x, y) }
 }
 
-export function renderCity(canvas: HTMLCanvasElement, city: CityData): void {
+
+// ─── Main render ──────────────────────────────────────────────────────────────
+
+export function renderCity(
+  canvas: HTMLCanvasElement,
+  city:   CityData,
+  pal:    Palette = PALETTES.Default,
+): void {
   const ctx = canvas.getContext('2d')
   if (!ctx) return
 
   const W = canvas.width, H = canvas.height
-  const cx = W / 2, cy = H / 2
 
-  ctx.clearRect(0, 0, W, H)
-  ctx.fillStyle = '#1a1a24'
+  // Auto-fit scale matching TownScene.layout():
+  //   scale = min(W,H) / (cityRadius * 2) * 0.85
+  const scale = city.cityRadius > 0
+    ? Math.min(W, H) / (city.cityRadius * 2) * 0.82
+    : 4
+
+  const cx = W / 2, cy = H / 2
+  const toC: ToCanvas = p => [cx + p.x * scale, cy + p.y * scale]
+  const sw = (worldW: number) => worldW * scale   // world → pixel stroke width
+
+  // ── 0. Background = paper ────────────────────────────────────────────────
+  ctx.fillStyle = pal.paper
   ctx.fillRect(0, 0, W, H)
 
-  // ── 1. Patches (ward colours) ─────────────────────────────────────────────
-
-  for (const patch of city.patches) {
-    const color = patch.ward?.color ?? (patch.withinWall ? '#3a3530' : '#2a2520')
-    polyPath(ctx, patch.shape, cx, cy)
-    ctx.fillStyle = color + '55'
-    ctx.fill()
-    ctx.strokeStyle = '#50504040'
-    ctx.lineWidth = 0.5
-    ctx.stroke()
-  }
-
-  // ── 2. City wall ─────────────────────────────────────────────────────────
-
-  if (city.wall.length > 2) {
-    polyPath(ctx, city.wall, cx, cy)
-    ctx.strokeStyle = '#a09060'
-    ctx.lineWidth = 3
-    ctx.stroke()
-    ctx.fillStyle = '#a0906010'
-    ctx.fill()
-  }
-
-  // ── 3. Streets (double line) ──────────────────────────────────────────────
+  // ── 1. Roads (drawn first, under buildings) ──────────────────────────────
+  // Exact port of CityMap.drawRoad():
+  //   wide:   MAIN_STREET + NORMAL_STROKE in palette.medium
+  //   narrow: MAIN_STREET - NORMAL_STROKE in palette.paper
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round'
 
   for (const street of city.streets) {
     if (street.length < 2) continue
-    // Road fill (wide, dark dirt)
-    linePath(ctx, street, cx, cy)
-    ctx.strokeStyle = '#604830'
-    ctx.lineWidth = 7
-    ctx.lineJoin  = 'round'
-    ctx.lineCap   = 'round'
+    linePath(ctx, street, toC)
+    ctx.strokeStyle = pal.medium
+    ctx.lineWidth   = sw(MAIN_STREET + NORMAL_STROKE)
     ctx.stroke()
-    // Road surface (thinner, lighter)
-    linePath(ctx, street, cx, cy)
-    ctx.strokeStyle = '#9a8060'
-    ctx.lineWidth = 4
+
+    linePath(ctx, street, toC)
+    ctx.strokeStyle = pal.paper
+    ctx.lineWidth   = sw(MAIN_STREET - NORMAL_STROKE)
     ctx.stroke()
   }
 
-  // ── 4. Buildings ──────────────────────────────────────────────────────────
+  // ── 2. Buildings ─────────────────────────────────────────────────────────
+  // All building types use light fill + dark stroke (NORMAL_STROKE).
+  // Parks use medium fill, no stroke.
+  // Plaza = open (no buildings).
+  // Castle = light fill + dark stroke at NORMAL_STROKE * 2.
+  for (const lot of city.buildings) {
+    if (lot.poly.length < 3) continue
 
-  for (const bld of city.buildings) {
-    if (bld.length < 3) continue
-    polyPath(ctx, bld, cx, cy)
-    ctx.fillStyle = '#c8b88880'
+    const isPark    = lot.wardName === 'Park'
+    const isCastle  = lot.wardName === 'Castle'
+
+    polyPath(ctx, lot.poly, toC)
+
+    if (isPark) {
+      ctx.fillStyle   = pal.medium
+      ctx.lineWidth   = 0
+      ctx.fill()
+    } else {
+      ctx.fillStyle   = pal.light
+      ctx.fill()
+      ctx.strokeStyle = pal.dark
+      ctx.lineWidth   = sw(isCastle ? NORMAL_STROKE * 2 : NORMAL_STROKE)
+      ctx.stroke()
+    }
+  }
+
+  // ── 3. City wall ─────────────────────────────────────────────────────────
+  // Exact port of CityMap.drawWall():
+  //   stroke THICK_STROKE in dark
+  //   towers = circles in dark
+  //   gates = thick tick lines in dark
+  if (city.wall.length > 2) {
+    polyPath(ctx, city.wall, toC)
+    ctx.strokeStyle = pal.dark
+    ctx.lineWidth   = sw(THICK_STROKE)
+    ctx.lineJoin    = 'miter'
+    ctx.stroke()
+  }
+
+  // Wall towers at each vertex
+  const towerR = sw(THICK_STROKE)
+  for (const v of city.wall) {
+    const [vx, vy] = toC(v)
+    ctx.beginPath(); ctx.arc(vx, vy, towerR, 0, Math.PI * 2)
+    ctx.fillStyle = pal.dark
     ctx.fill()
-    ctx.strokeStyle = '#80603040'
-    ctx.lineWidth = 0.8
-    ctx.stroke()
   }
 
-  // ── 5. Gates ─────────────────────────────────────────────────────────────
-
+  // Gate tick marks — cross-line at each gate point
+  const gateTickLen = sw(THICK_STROKE * 1.5)
   for (const gate of city.gates) {
-    const [gx, gy] = worldToCanvas(gate, cx, cy)
-    ctx.beginPath()
-    ctx.arc(gx, gy, 5, 0, Math.PI * 2)
-    ctx.fillStyle = '#f0c040'
-    ctx.fill()
-    ctx.strokeStyle = '#a08020'
-    ctx.lineWidth = 1.5
-    ctx.stroke()
-  }
+    const idx = city.wall.indexOf(gate)
+    if (idx === -1) continue
 
-  // ── 6. Plaza dot ──────────────────────────────────────────────────────────
+    // Direction along wall at gate vertex
+    const prev = city.wall[(idx + city.wall.length - 1) % city.wall.length]
+    const next = city.wall[(idx + 1) % city.wall.length]
+    const dir  = new Pt(next.x - prev.x, next.y - prev.y)
+    const len  = Math.sqrt(dir.x * dir.x + dir.y * dir.y)
+    if (len === 0) continue
+    const dx = (dir.x / len) * gateTickLen, dy = (dir.y / len) * gateTickLen
 
-  if (city.plaza) {
-    const c = city.plaza.center
-    const [px, py] = worldToCanvas(c, cx, cy)
+    const [gx, gy] = toC(gate)
     ctx.beginPath()
-    ctx.arc(px, py, 8, 0, Math.PI * 2)
-    ctx.fillStyle = '#f8e880'
-    ctx.fill()
-    ctx.strokeStyle = '#c0a020'
-    ctx.lineWidth = 2
+    ctx.moveTo(gx - dx, gy - dy)
+    ctx.lineTo(gx + dx, gy + dy)
+    ctx.strokeStyle = pal.dark
+    ctx.lineWidth   = sw(THICK_STROKE * 2)
+    ctx.lineCap     = 'square'
     ctx.stroke()
+    ctx.lineCap     = 'round'
   }
 }
+

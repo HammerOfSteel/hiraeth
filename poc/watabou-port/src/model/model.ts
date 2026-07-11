@@ -45,15 +45,22 @@ export interface CityParams {
 
 // ─── Model output ─────────────────────────────────────────────────────────────
 
+export interface BuildingLot {
+  poly:      Polygon
+  wardName:  string
+  wardColor: string
+}
+
 export interface CityData {
-  patches:   Patch[]
-  plaza:     Patch
-  citadel:   Patch | null
-  wall:      Pt[]           // wall polygon vertices (CCW)
-  gates:     Pt[]           // gate points on the wall
-  streets:   Pt[][]         // array of polylines
-  buildings: Polygon[]      // all building lot polygons
-  params:    CityParams
+  patches:    Patch[]
+  plaza:      Patch
+  citadel:    Patch | null
+  wall:       Pt[]           // wall polygon vertices (CCW)
+  gates:      Pt[]           // gate points on the wall
+  streets:    Pt[][]         // array of polylines
+  buildings:  BuildingLot[]  // building lots with ward info
+  cityRadius: number         // approx radius for auto-scale
+  params:     CityParams
 }
 
 // ─── Convex hull (gift wrapping) ──────────────────────────────────────────────
@@ -93,7 +100,8 @@ export class CityModel {
   wall:       Pt[]
   gates:      Pt[]
   streets:    Pt[][]
-  buildings:  Polygon[]
+  buildings:  BuildingLot[]
+  cityRadius: number = 0
   topology:   Topology
   params:     CityParams
 
@@ -120,15 +128,20 @@ export class CityModel {
     this.createWards()
     this.buildGeometry()
 
+    // Compute cityRadius from wall extent
+    const wallSource = this.wall.length > 2 ? this.wall : this.patches.flatMap(p => p.shape)
+    const cityRadius = wallSource.reduce((r, p) => Math.max(r, Pt.distance(p, new Pt(0,0))), 0)
+
     return {
-      patches:   this.patches,
-      plaza:     this.plaza!,
-      citadel:   this.citadel,
-      wall:      this.wall,
-      gates:     this.gates,
-      streets:   this.streets,
-      buildings: this.buildings,
-      params:    this.params,
+      patches:    this.patches,
+      plaza:      this.plaza!,
+      citadel:    this.citadel,
+      wall:       this.wall,
+      gates:      this.gates,
+      streets:    this.streets,
+      buildings:  this.buildings,
+      cityRadius,
+      params:     this.params,
     }
   }
 
@@ -306,7 +319,9 @@ export class CityModel {
     for (const patch of this.patches) {
       if (!patch.ward) continue
       const lots = patch.ward.createBuildings(patch, this.rng)
-      this.buildings.push(...lots)
+      for (const poly of lots) {
+        this.buildings.push({ poly, wardName: patch.ward.name, wardColor: patch.ward.color })
+      }
     }
   }
 }

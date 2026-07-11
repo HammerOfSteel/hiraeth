@@ -1,100 +1,224 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+/**
+ * App — full-screen city generator matching Watabou's UI layout.
+ *
+ * Layout:
+ *   - Map canvas fills the entire window (like the original)
+ *   - 4 size preset buttons float top-right
+ *   - Palette swatches float below size buttons
+ *   - Bottom-right: seed display
+ *   - Keyboard: Enter = new random seed, 1-4 = size presets
+ */
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { CityModel, type CityData } from '../model/model'
-import { renderCity } from './renderer'
+import { renderCity, PALETTES, type Palette } from './renderer'
 
-const CANVAS_SIZE = 800
+// ─── City size presets (matching CitySizeButton.hx) ───────────────────────────
 
-interface Params {
-  seed:     number
-  nPatches: number
+const SIZES = [
+  { label: 'Small Town', min: 6,  max: 10 },
+  { label: 'Large Town', min: 10, max: 15 },
+  { label: 'Small City', min: 15, max: 24 },
+  { label: 'Large City', min: 24, max: 40 },
+]
+
+function pickSize(preset: typeof SIZES[0], rng = Math.random): number {
+  return preset.min + Math.floor(rng() * (preset.max - preset.min))
 }
 
-function buildCity(params: Params): CityData {
-  const model = new CityModel(params)
-  return model.build()
+// ─── State ────────────────────────────────────────────────────────────────────
+
+interface GenState {
+  seed:      number
+  nPatches:  number
+  sizeLabel: string
 }
+
+function initialState(): GenState {
+  const preset = SIZES[1]  // Large Town default (like the original)
+  return { seed: 682063530, nPatches: pickSize(preset), sizeLabel: preset.label }
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [params, setParams] = useState<Params>({ seed: 42, nPatches: 15 })
-  const [error,  setError]  = useState<string | null>(null)
-  const [timing, setTiming] = useState<number>(0)
+  const [state,   setState]   = useState<GenState>(initialState)
+  const [palette, setPalette] = useState<Palette>(PALETTES.Default)
+  const [timing,  setTiming]  = useState(0)
+  const [error,   setError]   = useState<string | null>(null)
 
-  const generate = useCallback((p: Params) => {
+  // Resize canvas to window
+  useEffect(() => {
+    const resize = () => {
+      const c = canvasRef.current
+      if (!c) return
+      c.width  = window.innerWidth
+      c.height = window.innerHeight
+      // Re-render after resize using last city data (stored in ref below)
+      doGenerate(state, palette, false)
+    }
+    window.addEventListener('resize', resize)
+    resize()
+    return () => window.removeEventListener('resize', resize)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, palette])
+
+  // Ref to hold latest city for re-render without regeneration
+  const cityRef = useRef<CityData | null>(null)
+
+  const doGenerate = useCallback((s: GenState, pal: Palette, rebuild = true) => {
     setError(null)
-    const t0 = performance.now()
     try {
-      const city = buildCity(p)
+      const t0   = performance.now()
+      const city = rebuild ? new CityModel(s).build() : (cityRef.current ?? new CityModel(s).build())
+      cityRef.current = city
       setTiming(Math.round(performance.now() - t0))
-      if (canvasRef.current) renderCity(canvasRef.current, city)
+      const c = canvasRef.current
+      if (c) renderCity(c, city, pal)
     } catch (e) {
       setError(String(e))
       console.error(e)
     }
   }, [])
 
-  useEffect(() => { generate(params) }, [])
+  // First load
+  useEffect(() => { doGenerate(state, palette) }, [])  // eslint-disable-line
 
-  const handleSeed = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = { ...params, seed: Number(e.target.value) }
-    setParams(v); generate(v)
+  // Re-render on palette change (no rebuild)
+  useEffect(() => {
+    if (cityRef.current && canvasRef.current)
+      renderCity(canvasRef.current, cityRef.current, palette)
+  }, [palette])
+
+  // Keyboard shortcuts: Enter = new seed, 1-4 = size presets
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        const seed = Math.floor(Math.random() * 999999999)
+        const ns   = { ...state, seed }
+        setState(ns); doGenerate(ns, palette)
+      }
+      const idx = parseInt(e.key) - 1
+      if (idx >= 0 && idx < SIZES.length) {
+        const preset = SIZES[idx]
+        const ns = { seed: Math.floor(Math.random() * 999999999), nPatches: pickSize(preset), sizeLabel: preset.label }
+        setState(ns); doGenerate(ns, palette)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [state, palette, doGenerate])
+
+  // Button handlers
+  const onSizeClick = (preset: typeof SIZES[0]) => {
+    const ns = {
+      seed:      Math.floor(Math.random() * 999999999),
+      nPatches:  pickSize(preset),
+      sizeLabel: preset.label,
+    }
+    setState(ns); doGenerate(ns, palette)
   }
 
-  const handlePatches = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = { ...params, nPatches: Number(e.target.value) }
-    setParams(v); generate(v)
-  }
+  // ── UI ──────────────────────────────────────────────────────────────────────
+  const btnStyle = (active: boolean): React.CSSProperties => ({
+    padding:       '5px 10px',
+    background:    active ? palette.dark : palette.medium + 'cc',
+    color:         active ? palette.paper : palette.paper,
+    border:        `1px solid ${palette.dark}60`,
+    cursor:        'pointer',
+    fontFamily:    'Georgia, "Times New Roman", serif',
+    fontSize:      11,
+    letterSpacing: 1,
+    textTransform: 'uppercase' as const,
+    whiteSpace:    'nowrap' as const,
+  })
 
-  const handleRandomSeed = () => {
-    const v = { ...params, seed: Math.floor(Math.random() * 99999) }
-    setParams(v); generate(v)
-  }
+  const swatchStyle = (name: string): React.CSSProperties => ({
+    width:       18,
+    height:      18,
+    background:  PALETTES[name].dark,
+    border:      `2px solid ${palette === PALETTES[name] ? PALETTES[name].dark : 'transparent'}`,
+    outline:     palette === PALETTES[name] ? `2px solid ${PALETTES[name].paper}` : 'none',
+    cursor:      'pointer',
+    boxShadow:   `inset 0 0 0 3px ${PALETTES[name].light}`,
+  })
 
   return (
-    <div style={{ display: 'flex', gap: 24, padding: 24, background: '#0f0f18', minHeight: '100vh', color: '#d0c090', fontFamily: 'monospace' }}>
+    <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden', background: palette.paper }}>
 
-      {/* Controls */}
-      <div style={{ width: 220, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 18, color: '#f0d070' }}>Hiraeth — City Gen</h2>
-        <p style={{ margin: 0, fontSize: 11, color: '#807050' }}>Port of Watabou's Medieval Fantasy City Generator</p>
+      {/* Full-screen canvas */}
+      <canvas ref={canvasRef} style={{ display: 'block', position: 'absolute', inset: 0 }} />
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={{ fontSize: 12 }}>Seed: {params.seed}</span>
-          <input type="range" min={0} max={99999} value={params.seed} onChange={handleSeed}
-            style={{ accentColor: '#c0a040' }} />
-          <button onClick={handleRandomSeed}
-            style={{ padding: '4px 8px', background: '#302010', border: '1px solid #605030', color: '#d0b060', cursor: 'pointer', borderRadius: 3 }}>
-            Random
+      {/* Size buttons — top right (matching original CitySizeButton layout) */}
+      <div style={{ position: 'absolute', top: 4, right: 4, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        {SIZES.map((s, i) => (
+          <button
+            key={s.label}
+            onClick={() => onSizeClick(s)}
+            style={btnStyle(state.sizeLabel === s.label)}
+            title={`Keyboard: ${i + 1}`}
+          >
+            {s.label}
           </button>
-        </label>
+        ))}
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={{ fontSize: 12 }}>Patches: {params.nPatches}</span>
-          <input type="range" min={4} max={40} value={params.nPatches} onChange={handlePatches}
-            style={{ accentColor: '#c0a040' }} />
-          <div style={{ fontSize: 10, color: '#807050' }}>4=hamlet · 15=town · 40=city</div>
-        </label>
+        {/* Palette swatches */}
+        <div style={{ display: 'flex', gap: 2, marginTop: 8, justifyContent: 'flex-end' }}>
+          {Object.keys(PALETTES).map(name => (
+            <button
+              key={name}
+              onClick={() => setPalette(PALETTES[name])}
+              style={swatchStyle(name)}
+              title={name}
+            />
+          ))}
+        </div>
 
-        <div style={{ fontSize: 12, color: '#806040' }}>Generate: {timing}ms</div>
-
-        {error && (
-          <div style={{ fontSize: 11, color: '#e06060', background: '#300', padding: 8, borderRadius: 4, wordBreak: 'break-all' }}>
-            {error}
-          </div>
-        )}
-
-        <div style={{ fontSize: 11, color: '#504030', marginTop: 'auto' }}>
-          Based on Watabou's TownGeneratorOS (GPL-3.0)
+        {/* Seed display */}
+        <div style={{
+          marginTop:   6,
+          fontSize:    9,
+          color:       palette.dark + 'aa',
+          fontFamily:  'monospace',
+          textAlign:   'right',
+          userSelect:  'text',
+        }}>
+          seed: {state.seed} · {timing}ms
         </div>
       </div>
 
-      {/* Canvas */}
-      <canvas
-        ref={canvasRef}
-        width={CANVAS_SIZE}
-        height={CANVAS_SIZE}
-        style={{ border: '1px solid #302010', borderRadius: 4 }}
-      />
+      {/* Error overlay */}
+      {error && (
+        <div style={{
+          position:     'absolute',
+          bottom:       20,
+          left:         '50%',
+          transform:    'translateX(-50%)',
+          background:   '#fff0f0',
+          border:       '1px solid #c04040',
+          padding:      '8px 14px',
+          fontSize:     12,
+          color:        '#802020',
+          maxWidth:     500,
+          borderRadius: 4,
+        }}>
+          {error}
+        </div>
+      )}
+
+      {/* Keyboard hint — bottom left, very subtle */}
+      <div style={{
+        position:   'absolute',
+        bottom:     8,
+        left:       8,
+        fontSize:   9,
+        color:      palette.dark + '60',
+        fontFamily: 'Georgia, serif',
+        letterSpacing: 0.5,
+      }}>
+        Enter: new map · 1–4: size presets
+      </div>
     </div>
   )
 }
+

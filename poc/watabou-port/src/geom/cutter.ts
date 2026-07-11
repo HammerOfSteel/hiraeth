@@ -88,12 +88,13 @@ export function ring(poly: Polygon, thickness: number): Polygon[] {
 
 /**
  * Recursive polygon splitting for building lots.
- * Direct port of Ward.createAlleys() (recursive version from Cutter).
+ * Direct port of Ward.createAlleys() from Watabou/TownGeneratorOS.
  *
- * @param poly      polygon to subdivide
+ * @param poly      polygon to subdivide (should be pre-inset from patch boundary)
  * @param minSq     minimum lot area before stopping
  * @param gridChaos [0..1] variance in split position
  * @param sizeChaos [0..1] variance in lot size
+ * @param gap       alley gap width between buildings (default 0.6 = Ward.ALLEY)
  * @param rng       random function [0..1)
  * @returns         array of leaf polygons (lots)
  */
@@ -103,9 +104,15 @@ export function createAlleys(
   gridChaos: number,
   sizeChaos: number,
   rng: () => number,
+  gap = 0.6,
 ): Polygon[] {
   const sq = Math.abs(polySquare(poly))
-  if (sq < 2 * minSq) return [poly]
+
+  // Stopping condition: too small to split further
+  const sizeVariance = Math.pow(2, 4 * sizeChaos * (rng() - 0.5))
+  if (sq < minSq * sizeVariance) {
+    return [poly]
+  }
 
   // Find the longest edge
   let longestLen = 0, longestIdx = 0
@@ -116,17 +123,19 @@ export function createAlleys(
   }
 
   // Choose a split ratio biased toward 0.5
-  const ratio = 0.4 + rng() * 0.2 + (rng() - 0.5) * gridChaos * 0.3
+  const spread = 0.8 * gridChaos
+  const ratio  = (1 - spread) / 2 + rng() * spread
 
-  // Small angular jitter for the cut direction
-  const angle = (rng() - 0.5) * sizeChaos * Math.PI * 0.25
+  // Small angular jitter (kept small on near-minimum-size polys)
+  const angleSpread = (Math.PI / 6) * gridChaos * (sq < minSq * 4 ? 0 : 1)
+  const angle = (rng() - 0.5) * angleSpread
 
-  const halves = bisect(poly, poly[longestIdx], ratio, angle, 0)
+  const halves = bisect(poly, poly[longestIdx], ratio, angle, gap)
   if (halves.length < 2) return [poly]
 
   return [
-    ...createAlleys(halves[0], minSq, gridChaos, sizeChaos, rng),
-    ...createAlleys(halves[1], minSq, gridChaos, sizeChaos, rng),
+    ...createAlleys(halves[0], minSq, gridChaos, sizeChaos, rng, gap),
+    ...createAlleys(halves[1], minSq, gridChaos, sizeChaos, rng, gap),
   ]
 }
 
