@@ -443,9 +443,44 @@ function generateCoreGrid(
 }
 
 /**
- * Fill each grid block with a 2×2 sub-grid of lots.
- * This is Gemini's "Phase B" block subdivision — houses live INSIDE road loops,
- * not just scattered along road edges.
+ * Watabou's `createAlleys` translated to axis-aligned rectangles.
+ *
+ * Recursively bisects a rectangle into lots:
+ *  - Cuts are along the LONGEST axis (like finding the longest edge in the Haxe code)
+ *  - `chaos` ∈ [0,1] controls how off-centre the cut falls (0 = near 50%, 1 = wild)
+ *  - Returns array of [x0, y0, x1, y1] quads in local grid space
+ */
+function subdivideRect(
+  x0: number, y0: number, x1: number, y1: number,
+  minArea: number, chaos: number, rng: () => number,
+  depth = 0,
+): [number, number, number, number][] {
+  const w = x1 - x0, h = y1 - y0
+  if (w * h <= minArea || depth > 5) return [[x0, y0, x1, y1]]
+
+  const spread = 0.75 * chaos
+  const ratio  = (1 - spread) / 2 + rng() * spread   // near 0.5 when ordered, wilder when chaotic
+  const splitH = h >= w                                // split along longest dimension
+
+  if (splitH) {
+    const ys = y0 + h * ratio
+    return [
+      ...subdivideRect(x0, y0, x1, ys, minArea, chaos, rng, depth + 1),
+      ...subdivideRect(x0, ys, x1, y1, minArea, chaos, rng, depth + 1),
+    ]
+  } else {
+    const xs = x0 + w * ratio
+    return [
+      ...subdivideRect(x0, y0, xs, y1, minArea, chaos, rng, depth + 1),
+      ...subdivideRect(xs, y0, x1, y1, minArea, chaos, rng, depth + 1),
+    ]
+  }
+}
+
+/**
+ * Fill each grid block with recursively subdivided lots.
+ * Replaces the old fixed 2×2 grid.
+ * chaos grows with distance from town centre → core is orderly, outskirts organic.
  */
 function coreBlockLots(
   center:    Vec2,
@@ -455,14 +490,13 @@ function coreBlockLots(
   lotShrink: number,
   costMap:   Float32Array,
   ms:        number,
+  rng:       () => number,
 ): Lot[] {
   const lots    = [] as Lot[]
   const halfMap = ms / 2 - 4
   const inset   = 5.5
   const inner   = spacing - 2 * inset
   if (inner < 6) return lots
-  const LOTS_PER = 2
-  const lotW  = inner / LOTS_PER
 
   const bx = { x: Math.cos(hwAngle), y: Math.sin(hwAngle) }
   const by = { x: -Math.sin(hwAngle), y: Math.cos(hwAngle) }
@@ -477,27 +511,32 @@ function coreBlockLots(
       const bCW = toWorld(x0 + inner*0.5, y0 + inner*0.5)
       if (costAt(bCW, costMap, ms) > 50) continue
 
-      for (let lr = 0; lr < LOTS_PER; lr++) {
-        for (let lc = 0; lc < LOTS_PER; lc++) {
-          const lx0 = x0 + lc * lotW, ly0 = y0 + lr * lotW
-          const lx1 = lx0 + lotW,    ly1 = ly0 + lotW
-          const cW  = toWorld((lx0+lx1)/2, (ly0+ly1)/2)
+      // chaos grows with distance from centre (Watabou: slums at edge, market at core)
+      const blockDist = Math.sqrt(br*br + bc*bc) / Math.max(1, n)
+      const chaos     = Math.min(1, 0.15 + blockDist * 0.75)
 
-          if (Math.abs(cW.x) > halfMap || Math.abs(cW.y) > halfMap) continue
-          if (costAt(cW, costMap, ms) > 20) continue
+      // min lot area = ~30% of spacing², stops infinite recursion on tiny blocks
+      const minLotArea = Math.pow(spacing * 0.28, 2)
+      const rects = subdivideRect(x0, y0, x0 + inner, y0 + inner, minLotArea, chaos, rng)
 
-          const m = lotW * Math.max(0.02, lotShrink * 0.6)
-          lots.push({
-            polygon: [
-              toWorld(lx0+m, ly0+m),
-              toWorld(lx1-m, ly0+m),
-              toWorld(lx1-m, ly1-m),
-              toWorld(lx0+m, ly1-m),
-            ],
-            blockId: (br + n) * (2*n) + (bc + n),
-            type:    'residential',
-          })
-        }
+      for (const [rx0, ry0, rx1, ry1] of rects) {
+        const rw = rx1 - rx0, rh = ry1 - ry0
+        const m  = Math.min(rw, rh) * Math.max(0.02, lotShrink * 0.5)
+        const cW = toWorld((rx0+rx1)/2, (ry0+ry1)/2)
+
+        if (Math.abs(cW.x) > halfMap || Math.abs(cW.y) > halfMap) continue
+        if (costAt(cW, costMap, ms) > 20) continue
+
+        lots.push({
+          polygon: [
+            toWorld(rx0+m, ry0+m),
+            toWorld(rx1-m, ry0+m),
+            toWorld(rx1-m, ry1-m),
+            toWorld(rx0+m, ry1-m),
+          ],
+          blockId: (br + n) * (2*n) + (bc + n),
+          type:    'residential',
+        })
       }
     }
   }
@@ -715,7 +754,7 @@ export function generateWorld(params: GenParams): GeneratedWorld {
 
   // 9a. Core block lots (Gemini Phase B: fill blocks between grid roads)
   //     Added first so they claim the occupancy grid before suburban lots.
-  for (const lot of coreBlockLots(townCenter, gridSpacing, gridN, hwAngle, params.lotShrink, costMap, ms)) {
+  for (const lot of coreBlockLots(townCenter, gridSpacing, gridN, hwAngle, params.lotShrink, costMap, ms, rng)) {
     const c    = centroid(lot.polygon)
     const keys = [lotKey(c), lotKey({x:c.x+CELL,y:c.y}), lotKey({x:c.x-CELL,y:c.y}), lotKey({x:c.x,y:c.y+CELL}), lotKey({x:c.x,y:c.y-CELL})]
     if (keys.some(k => occupied.has(k))) continue
