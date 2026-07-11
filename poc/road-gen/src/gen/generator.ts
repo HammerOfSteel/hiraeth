@@ -357,15 +357,21 @@ function classifyLot(
 
   const distFromCenter = Math.sqrt(c.x*c.x + c.y*c.y) / mapSize
 
-  // Civic: moderate distance from center, on major road
-  if (distFromCenter < 0.18 && minArterialDist < 12 && rng() < 0.12) return 'civic'
-  // Highway strip → strongly commercial
-  if (minHighwayDist < 22 && rng() < 0.7) return 'commercial'
-  // Arterial frontage → mostly commercial
-  if (minArterialDist < 10 && rng() < 0.45) return 'commercial'
-  // Back lots away from all roads → green space / park
-  if (minAnyRoadDist > 22 && rng() < 0.4) return 'green'
-  // Default: residential
+  // ── Civic first — town centre buildings (church, school, pub, town hall)
+  //    Civic lots are near the map centre, don't need to be on an arterial.
+  if (distFromCenter < 0.22 && rng() < 0.09) return 'civic'
+
+  // ── Green space — away from the major road network (parks, allotments, gardens)
+  //    We compare to MAJOR roads only because every lot is near *some* road.
+  //    Residential-only areas away from arterials and the highway qualify.
+  if (minHighwayDist > 30 && minArterialDist > 22 && rng() < 0.22) return 'green'
+
+  // ── Commercial — highway-strip shops, petrol stations, drive-throughs
+  if (minHighwayDist < 24 && rng() < 0.55) return 'commercial'
+
+  // ── Commercial — arterial frontage (local shops, takeaways)
+  if (minArterialDist < 12 && rng() < 0.28) return 'commercial'
+
   return 'residential'
 }
 
@@ -426,20 +432,24 @@ export function generateWorld(params: GenParams): GeneratedWorld {
     segments.push(...polylineToSegments(pts, 'arterial'))
   }
 
-  // 5. Arterial roads — branch FROM the highway (Reverse Growing: mathematically
-  //    impossible to be orphaned because every arterial STARTS on the highway).
-  //    Alternating sides + organic angle noise creates a natural "fishbone" layout
-  //    typical of British A-road settlements.
+  // 5. Arterial roads — MIXED strategy for coverage + connectivity:
+  //    • 60% branch FROM the highway (fishbone, always connected)
+  //    • 40% radiate inward from the perimeter (coverage, DSU will repair any gaps)
+  //    Scales with map size so larger maps get denser road networks.
   {
     const hwSegs = segments.filter(s => s.type === 'highway')
-    for (let i = 0; i < params.arterialCount; i++) {
+    const scale  = Math.max(1, ms / 300)                   // linear scale with map size
+    const total  = Math.round(params.arterialCount * scale)
+    const hwCount  = Math.ceil(total * 0.6)               // 60% from highway
+    const rimCount = total - hwCount                       // 40% from perimeter
+
+    for (let i = 0; i < hwCount; i++) {
       if (hwSegs.length === 0) break
       const hwSeg = hwSegs[Math.floor(rng() * hwSegs.length)]
       const origin = v2.lerp(hwSeg.a, hwSeg.b, rng())
       const hwAngle = Math.atan2(hwSeg.b.y - hwSeg.a.y, hwSeg.b.x - hwSeg.a.x)
-      // Alternate sides, add ±37° organic noise
-      const side = i % 2 === 0 ? 1 : -1
-      const toward = hwAngle + Math.PI * 0.5 * side + (rng()-0.5) * 0.65
+      const side    = i % 2 === 0 ? 1 : -1
+      const toward  = hwAngle + Math.PI * 0.5 * side + (rng()-0.5) * 0.65
       const pts = traceRoad(
         origin, toward,
         params.majorSpacing * 0.42,
@@ -448,11 +458,27 @@ export function generateWorld(params: GenParams): GeneratedWorld {
       )
       segments.push(...polylineToSegments(pts, 'arterial'))
     }
+
+    for (let i = 0; i < rimCount; i++) {
+      const angle  = (i / rimCount) * Math.PI * 2
+      const dist   = half * (0.65 + rng() * 0.25)
+      const start: Vec2 = { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist }
+      const toward = Math.atan2(-start.y, -start.x) + (rng()-0.5) * 0.5
+      const pts = traceRoad(
+        start, toward,
+        params.majorSpacing * 0.42,
+        Math.floor(ms / (params.majorSpacing * 0.42)) + 6,
+        costMap, ms, field, segments, rng, 0.07, 'arterial',
+      )
+      segments.push(...polylineToSegments(pts, 'arterial'))
+    }
   }
 
-  // 6. Residential roads — branch perpendicular off arterials
+  // 6. Residential roads — branch perpendicular off arterials.
+  //    Count scales with map area so bigger maps stay dense.
   const artSegs  = segments.filter(s => s.type === 'arterial')
-  const resCount = Math.floor(params.arterialCount * 3 * params.residentialDensity)
+  const resScale = Math.sqrt(ms / 250)   // √(area ratio) — avoids explosion on huge maps
+  const resCount = Math.floor(params.arterialCount * 4 * params.residentialDensity * resScale)
 
   for (let i = 0; i < resCount; i++) {
     if (artSegs.length === 0) break
@@ -481,9 +507,13 @@ export function generateWorld(params: GenParams): GeneratedWorld {
   //    Safety net for spine roads or any edge-case orphans.
   segments.push(...ensureConnectivity(segments, ms, rng))
 
-  // 8. Lots alongside every road segment — with occupancy-grid overlap prevention
+  // 8. Lots alongside every road segment — with occupancy-grid overlap prevention.
+  //    CELL = half the residential road half-width so lots on OPPOSITE sides of the
+  //    same road never collide, while genuinely overlapping lots from two parallel
+  //    roads are still rejected.  Only the centroid cell + direct neighbours (not
+  //    the 3×3 box used before) are checked — this keeps density high.
   const lots: Lot[] = []
-  const CELL = 5  // world units per occupancy cell
+  const CELL = 4
   const occupied = new Set<string>()
   const lotKey = (p: Vec2) => `${Math.round(p.x/CELL)},${Math.round(p.y/CELL)}`
   const centroid = (poly: Vec2[]) => ({
@@ -494,8 +524,8 @@ export function generateWorld(params: GenParams): GeneratedWorld {
   for (const seg of segments) {
     for (const lot of generateRoadLots(seg, costMap, ms, params.lotShrink)) {
       const c = centroid(lot.polygon)
-      // Check a 3×3 grid around the centroid for existing lots
-      const keys = [-CELL,0,CELL].flatMap(dx =>[-CELL,0,CELL].map(dy => lotKey({x:c.x+dx,y:c.y+dy})))
+      // Check centroid cell + its 4 cardinal neighbours (not 3×3 — too aggressive)
+      const keys = [lotKey(c), lotKey({x:c.x+CELL,y:c.y}), lotKey({x:c.x-CELL,y:c.y}), lotKey({x:c.x,y:c.y+CELL}), lotKey({x:c.x,y:c.y-CELL})]
       if (keys.some(k => occupied.has(k))) continue
       lots.push(lot)
       // Mark the lot footprint in the occupancy grid
