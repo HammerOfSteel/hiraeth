@@ -24,6 +24,11 @@ export function buildTrees(data: RenderData, scene: THREE.Scene): THREE.Group {
   const wards = data.wards.filter(w => TREE_WARDS.has(w.type))
 
   for (const ward of wards) {
+    // Skip patches whose centroid lies outside the city radius
+    const cx = ward.shape.reduce((s, v) => s + v.x, 0) / ward.shape.length
+    const cy = ward.shape.reduce((s, v) => s + v.y, 0) / ward.shape.length
+    if (cx * cx + cy * cy > data.cityRadius * data.cityRadius) continue
+
     const density = ward.type === 'Park' ? 0.4 : 0.15
     const bounds  = ward.shape.reduce(
       (b, v) => ({

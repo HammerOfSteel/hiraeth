@@ -43,6 +43,36 @@ export function buildGround(data: RenderData, scene: THREE.Scene): THREE.Group {
     group.add(mesh)
   }
 
+  // Road strips — flat quads at y = 0.01 for each artery segment
+  const ROAD_WIDTH  = 6   // ~MAIN_STREET in world units
+  const roadMat     = new THREE.MeshLambertMaterial({ color: 0x988878 })
+
+  for (const street of data.streets) {
+    for (let i = 0; i < street.length - 1; i++) {
+      const a = street[i], b = street[i + 1]
+      const dx = b.x - a.x, dy = b.y - a.y
+      const len = Math.sqrt(dx * dx + dy * dy)
+      if (len < 0.01) continue
+
+      // Build a rect centred on the segment midpoint
+      const nx = -dy / len, ny = dx / len   // perpendicular
+      const hw = ROAD_WIDTH / 2
+
+      const verts = new Float32Array([
+        a.x + nx * hw, 0.01, a.y + ny * hw,
+        a.x - nx * hw, 0.01, a.y - ny * hw,
+        b.x - nx * hw, 0.01, b.y - ny * hw,
+        b.x + nx * hw, 0.01, b.y + ny * hw,
+      ])
+      const idx = new Uint16Array([0, 1, 2, 0, 2, 3])
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(verts, 3))
+      geo.setIndex(new THREE.BufferAttribute(idx, 1))
+      geo.computeVertexNormals()
+      group.add(new THREE.Mesh(geo, roadMat))
+    }
+  }
+
   scene.add(group)
   return group
 }
