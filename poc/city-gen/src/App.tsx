@@ -1,10 +1,11 @@
 import './index.css'
-import { MapView } from './ui/MapView'
+import { CityProvider } from './ui/CityContext'
+import { AppShell } from './ui/AppShell'
 
 export default function App() {
   return (
-    <div className="w-screen h-screen overflow-hidden">
-      <MapView />
-    </div>
+    <CityProvider>
+      <AppShell />
+    </CityProvider>
   )
 }
