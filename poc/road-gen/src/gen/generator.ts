@@ -362,23 +362,7 @@ function generateRoadLots(
 
 // ─── Town Core ────────────────────────────────────────────────────────────────
 
-/**
- * Non-uniform grid line positions (Watabou spiral inspiration):
- * Returns (2n+1) sorted positions centred at 0.
- * Inner spacings are ~70% of base; outer spacings are ~130%.
- * This replicates Watabou's sqrt(i) spiral: dense urban core, sparser outskirts.
- */
-function coreGridPositions(n: number, baseSpacing: number): number[] {
-  const pos = new Array<number>(2 * n + 1)
-  pos[n] = 0
-  for (let i = 1; i <= n; i++) {
-    const scale = 0.70 + (i / n) * 0.60   // 0.70 → 1.30 as we move outward
-    const step  = baseSpacing * scale
-    pos[n + i] = pos[n + i - 1] + step
-    pos[n - i] = pos[n - i + 1] - step
-  }
-  return pos
-}
+
 
 /**
  * Find the point on the highway closest to the map centre.
@@ -397,71 +381,101 @@ function findTownCenter(hwSegs: Segment[]): Vec2 {
   return best
 }
 
+/** One city block polygon produced by the organic radial core. */
+interface CoreBlock { poly: Vec2[]; ringIdx: number }
+
 /**
- * Generate a regular grid of "collector" streets around the town centre.
- * Rotated to align with the highway and jittered for an organic feel.
- * Gemini Phase B: The Subdivider.
+ * Organic radial+ring town core — replaces the rectangular grid.
+ *
+ * Watabou uses Voronoi for this; we approximate with a "spider-web":
+ * N spokes radiate from the town centre at irregular angles, connected
+ * by M concentric rings.  This produces organic polygon blocks (triangles
+ * near the centre, irregular quads toward the edge) — far closer to the
+ * medieval feel than a rectangular grid.
  */
-function generateCoreGrid(
-  center:  Vec2,
-  spacing: number,
-  n:       number,
-  hwAngle: number,    // rotate grid to align streets with the main road
-  costMap: Float32Array,
-  ms:      number,
-  rng:     () => number,
-): Segment[] {
-  const segs    = [] as Segment[]
+function generateOrganicCore(
+  center:    Vec2,
+  radius:    number,     // world-unit radius of the outermost ring
+  numRings:  number,     // concentric ring roads (typ 2)
+  numSpokes: number,     // radial spoke roads (typ 6–9)
+  hwAngle:   number,     // first spoke aligns with the highway direction
+  costMap:   Float32Array,
+  ms:        number,
+  rng:       () => number,
+): { segments: Segment[]; blocks: CoreBlock[] } {
+  const segments: Segment[] = []
+  const blocks:   CoreBlock[] = []
   const halfMap = ms / 2 - 6
-  const JITTER  = spacing * 0.22   // up to 22% of spacing — makes it feel hand-drawn
 
-  const bx = { x: Math.cos(hwAngle), y: Math.sin(hwAngle) }    // along highway
-  const by = { x: -Math.sin(hwAngle), y: Math.cos(hwAngle) }   // perpendicular
+  // Spoke angles: roughly evenly spaced but individually jittered ≤55% of inter-spoke gap
+  const spokeAngles: number[] = []
+  for (let s = 0; s < numSpokes; s++) {
+    const base   = hwAngle + (s / numSpokes) * Math.PI * 2
+    const jitter = (rng() - 0.5) * (Math.PI / numSpokes) * 0.55
+    spokeAngles.push(base + jitter)
+  }
+  spokeAngles.sort((a, b) => a - b)   // ensure CCW angular order
 
-  // Variable grid-line positions: denser at centre, sparser at edges.
-  const xPos = coreGridPositions(n, spacing)
-  const yPos = coreGridPositions(n, spacing)
-
-  // Build a grid of slightly jittered intersection nodes in the rotated frame.
-  // Edge nodes stay fixed so the block boundary is clean.
-  const dim = 2*n + 1
-  const nodes: Vec2[] = []
-  for (let r = 0; r <= 2*n; r++) {
-    for (let c = 0; c <= 2*n; c++) {
-      const isEdge = r === 0 || r === 2*n || c === 0 || c === 2*n
-      const jx = isEdge ? 0 : (rng()-0.5) * JITTER
-      const jy = isEdge ? 0 : (rng()-0.5) * JITTER
-      const lx = xPos[c] + jx, ly = yPos[r] + jy
-      nodes[r*dim + c] = {
-        x: center.x + lx * bx.x + ly * by.x,
-        y: center.y + lx * bx.y + ly * by.y,
+  // Node grid: nodes[ring][spoke]
+  // Each ring has a nominal radius; each individual node is perturbed ±20%
+  // so the rings are non-circular and organically irregular.
+  const nodes: Vec2[][] = []
+  for (let r = 0; r < numRings; r++) {
+    nodes[r] = []
+    const baseR = radius * ((r + 1) / numRings)
+    for (let s = 0; s < numSpokes; s++) {
+      const nodeR = baseR * (0.80 + rng() * 0.40)
+      nodes[r][s] = {
+        x: center.x + Math.cos(spokeAngles[s]) * nodeR,
+        y: center.y + Math.sin(spokeAngles[s]) * nodeR,
       }
     }
   }
 
-  const at = (r: number, c: number) => nodes[r*dim + c]
-
-  for (let r = 0; r <= 2*n; r++) {
-    for (let c = 0; c < 2*n; c++) {
-      const a = at(r, c), b = at(r, c+1)
-      if (Math.abs(a.x) > halfMap || Math.abs(b.x) > halfMap) continue
-      if (Math.abs(a.y) > halfMap || Math.abs(b.y) > halfMap) continue
-      if (costAt(a, costMap, ms) > 50 || costAt(b, costMap, ms) > 50) continue
-      segs.push({ a, b, type: 'arterial' })
+  // Spokes: centre → ring[0] → ring[1] → ...
+  for (let s = 0; s < numSpokes; s++) {
+    let prev = { ...center }
+    for (let r = 0; r < numRings; r++) {
+      const n = nodes[r][s]
+      if (Math.abs(n.x) > halfMap || Math.abs(n.y) > halfMap) break
+      if (costAt(n, costMap, ms) > 50) break
+      segments.push({ a: { ...prev }, b: { ...n }, type: 'arterial' })
+      prev = { ...n }
     }
   }
 
-  for (let c = 0; c <= 2*n; c++) {
-    for (let r = 0; r < 2*n; r++) {
-      const a = at(r, c), b = at(r+1, c)
+  // Rings: connect adjacent spoke nodes on each ring
+  for (let r = 0; r < numRings; r++) {
+    for (let s = 0; s < numSpokes; s++) {
+      const s2 = (s + 1) % numSpokes
+      const a = nodes[r][s], b = nodes[r][s2]
       if (Math.abs(a.x) > halfMap || Math.abs(b.x) > halfMap) continue
-      if (Math.abs(a.y) > halfMap || Math.abs(b.y) > halfMap) continue
       if (costAt(a, costMap, ms) > 50 || costAt(b, costMap, ms) > 50) continue
-      segs.push({ a, b, type: 'arterial' })
+      segments.push({ a: { ...a }, b: { ...b }, type: 'arterial' })
     }
   }
 
-  return segs
+  // Inner triangles: centre → ring[0][s] → ring[0][s+1]  (civic/plaza area)
+  for (let s = 0; s < numSpokes; s++) {
+    const s2 = (s + 1) % numSpokes
+    blocks.push({ poly: [{ ...center }, { ...nodes[0][s] }, { ...nodes[0][s2] }], ringIdx: 0 })
+  }
+
+  // Outer quads: ring[r][s] → ring[r][s+1] → ring[r+1][s+1] → ring[r+1][s]
+  for (let r = 0; r < numRings - 1; r++) {
+    for (let s = 0; s < numSpokes; s++) {
+      const s2 = (s + 1) % numSpokes
+      blocks.push({
+        poly: [
+          { ...nodes[r][s] }, { ...nodes[r][s2] },
+          { ...nodes[r+1][s2] }, { ...nodes[r+1][s] },
+        ],
+        ringIdx: r + 1,
+      })
+    }
+  }
+
+  return { segments, blocks }
 }
 
 /**
@@ -500,79 +514,80 @@ function subdivideRect(
 }
 
 /**
- * Fill each grid block with recursively subdivided lots.
- * Replaces the old fixed 2×2 grid.
- * chaos grows with distance from town centre → core is orderly, outskirts organic.
+ * Bilinear interpolation within a quad [p00, p10, p11, p01] (CCW order).
+ * u,v ∈ [0,1]
  */
-function coreBlockLots(
-  center:    Vec2,
-  spacing:   number,
-  n:         number,
-  hwAngle:   number,    // rotate lots to align with the highway grid
+function bilinearInterp(p00: Vec2, p10: Vec2, p11: Vec2, p01: Vec2, u: number, v: number): Vec2 {
+  const iu = 1 - u, iv = 1 - v
+  return {
+    x: iu*iv*p00.x + u*iv*p10.x + iu*v*p01.x + u*v*p11.x,
+    y: iu*iv*p00.y + u*iv*p10.y + iu*v*p01.y + u*v*p11.y,
+  }
+}
+
+/**
+ * Fill organic core blocks with building lots.
+ *   Triangle blocks (inner) → single shrunk lot (town square / civic)
+ *   Quad blocks (outer)     → bilinear UV subdivision via subdivideRect
+ *                             chaos grows with ring index for organic outskirts
+ */
+function organicCoreLots(
+  blocks:    CoreBlock[],
+  numRings:  number,
   lotShrink: number,
   costMap:   Float32Array,
   ms:        number,
   rng:       () => number,
 ): Lot[] {
-  const lots    = [] as Lot[]
-  const halfMap = ms / 2 - 4
-  const inset   = 5.5
+  const lots:    Lot[]   = []
+  const halfMap  = ms / 2 - 4
+  const UV_INSET = 0.10    // road-setback equivalent in normalised UV space
 
-  const bx = { x: Math.cos(hwAngle), y: Math.sin(hwAngle) }
-  const by = { x: -Math.sin(hwAngle), y: Math.cos(hwAngle) }
-  const toWorld = (lx: number, ly: number): Vec2 => ({
-    x: center.x + lx * bx.x + ly * by.x,
-    y: center.y + lx * bx.y + ly * by.y,
-  })
+  for (let bi = 0; bi < blocks.length; bi++) {
+    const { poly, ringIdx } = blocks[bi]
+    const cx = poly.reduce((s,p)=>s+p.x,0)/poly.length
+    const cy = poly.reduce((s,p)=>s+p.y,0)/poly.length
+    if (Math.abs(cx) > halfMap || Math.abs(cy) > halfMap) continue
+    if (costAt({ x: cx, y: cy }, costMap, ms) > 50) continue
 
-  // Use the same non-uniform grid positions as generateCoreGrid so lots fit their blocks.
-  const xPos = coreGridPositions(n, spacing)
-  const yPos = coreGridPositions(n, spacing)
+    // ── Inner triangle → single central lot (plaza / market square) ────────
+    if (poly.length === 3) {
+      const shrink = 0.28 + lotShrink * 0.4
+      const sc = poly.map(p => ({
+        x: cx + (p.x - cx) * (1 - shrink),
+        y: cy + (p.y - cy) * (1 - shrink),
+      }))
+      if (costAt({ x: cx, y: cy }, costMap, ms) <= 20)
+        lots.push({ polygon: sc, blockId: bi, type: 'residential' })
+      continue
+    }
 
-  for (let bi = 0; bi < 2*n; bi++) {      // row index in 0-based grid
-    for (let bj = 0; bj < 2*n; bj++) {   // col index
-      const gx0 = xPos[bj],   gx1 = xPos[bj + 1]
-      const gy0 = yPos[bi],   gy1 = yPos[bi + 1]
-      const blockW = gx1 - gx0, blockH = gy1 - gy0
-      const inner  = Math.min(blockW, blockH) - 2 * inset
-      if (inner < 6) continue
+    // ── Quad block → bilinear UV subdivision ──────────────────────────────
+    // poly order: [bottom-left, bottom-right, top-right, top-left]
+    const [p00, p10, p11, p01] = poly
+    const bl = (u: number, v: number) => bilinearInterp(p00, p10, p11, p01, u, v)
 
-      const x0 = gx0 + inset, y0 = gy0 + inset
-      const x1 = gx0 + blockW - inset, y1 = gy0 + blockH - inset
+    const chaos    = Math.min(1, 0.10 + (ringIdx / Math.max(1, numRings)) * 0.80)
+    const shrinkUV = UV_INSET * 0.40 + lotShrink * UV_INSET * 0.35
 
-      const bCW = toWorld((gx0+gx1)/2, (gy0+gy1)/2)
-      if (costAt(bCW, costMap, ms) > 50) continue
+    const rects = subdivideRect(
+      UV_INSET, UV_INSET, 1 - UV_INSET, 1 - UV_INSET,
+      0.032,    // minArea in UV² — gives ~4–8 lots per block
+      chaos, rng,
+    )
 
-      // chaos: ordered civic core → organic suburban edge
-      const br = bi - n, bc = bj - n
-      const blockDist = Math.sqrt(br*br + bc*bc) / Math.max(1, n)
-      const chaos     = Math.min(1, 0.15 + blockDist * 0.75)
-
-      const minLotArea = Math.pow(Math.min(blockW, blockH) * 0.28, 2)
-      const rects = subdivideRect(x0, y0, x1, y1, minLotArea, chaos, rng)
-
-      for (const [rx0, ry0, rx1, ry1] of rects) {
-        const rw = rx1 - rx0, rh = ry1 - ry0
-        const m  = Math.min(rw, rh) * Math.max(0.02, lotShrink * 0.5)
-        const cW = toWorld((rx0+rx1)/2, (ry0+ry1)/2)
-
-        if (Math.abs(cW.x) > halfMap || Math.abs(cW.y) > halfMap) continue
-        if (costAt(cW, costMap, ms) > 20) continue
-
-        lots.push({
-          polygon: [
-            toWorld(rx0+m, ry0+m),
-            toWorld(rx1-m, ry0+m),
-            toWorld(rx1-m, ry1-m),
-            toWorld(rx0+m, ry1-m),
-          ],
-          blockId: bi * (2*n) + bj,
-          type:    'residential',
-        })
-      }
+    for (const [u0, v0, u1, v1] of rects) {
+      const sc = shrinkUV
+      const polygon: Vec2[] = [
+        bl(u0+sc, v0+sc), bl(u1-sc, v0+sc),
+        bl(u1-sc, v1-sc), bl(u0+sc, v1-sc),
+      ]
+      const lc = { x: polygon.reduce((s,p)=>s+p.x,0)/4, y: polygon.reduce((s,p)=>s+p.y,0)/4 }
+      if (Math.abs(lc.x) > halfMap || Math.abs(lc.y) > halfMap) continue
+      if (costAt(lc, costMap, ms) > 20) continue
+      lots.push({ polygon, blockId: bi, type: 'residential' })
     }
   }
-
   return lots
 }
 
@@ -675,11 +690,17 @@ export function generateWorld(params: GenParams): GeneratedWorld {
       )
     : 0
 
-  // 4b. Core grid — regular block streets around the town centre,
-  //     aligned with the highway and organically jittered.
-  const gridSpacing = params.majorSpacing * 1.15
-  const gridN       = Math.max(2, Math.round(ms / 110))
-  segments.push(...generateCoreGrid(townCenter, gridSpacing, gridN, hwAngle, costMap, ms, rng))
+  // 4b. Organic core — radial spokes + concentric ring roads.
+  //     Replaces the rectangular grid: streets radiate from the town centre
+  //     and are connected by irregular rings, creating organic polygon blocks
+  //     (triangles near the centre, irregular quads toward the edge).
+  const coreRadius  = ms * 0.26
+  const numRings    = 2
+  const numSpokes   = 6 + Math.floor(rng() * 3)   // 6–8 spokes per seed
+  const { segments: coreSegs, blocks: coreBlocks } = generateOrganicCore(
+    townCenter, coreRadius, numRings, numSpokes, hwAngle, costMap, ms, rng,
+  )
+  segments.push(...coreSegs)
 
   // 5. Spine roads — two roads that converge on the town centre, creating the
   //    main "high street" crossroads typical of British market towns.
@@ -784,9 +805,8 @@ export function generateWorld(params: GenParams): GeneratedWorld {
     y: poly.reduce((s,p)=>s+p.y,0)/poly.length,
   })
 
-  // 9a. Core block lots (Gemini Phase B: fill blocks between grid roads)
-  //     Added first so they claim the occupancy grid before suburban lots.
-  for (const lot of coreBlockLots(townCenter, gridSpacing, gridN, hwAngle, params.lotShrink, costMap, ms, rng)) {
+  // 9a. Organic core block lots — fill the radial+ring polygon blocks
+  for (const lot of organicCoreLots(coreBlocks, numRings, params.lotShrink, costMap, ms, rng)) {
     const c    = centroid(lot.polygon)
     const keys = [lotKey(c), lotKey({x:c.x+CELL,y:c.y}), lotKey({x:c.x-CELL,y:c.y}), lotKey({x:c.x,y:c.y+CELL}), lotKey({x:c.x,y:c.y-CELL})]
     if (keys.some(k => occupied.has(k))) continue
