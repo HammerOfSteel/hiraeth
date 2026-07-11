@@ -281,6 +281,29 @@ function polylineToSegments(pts: Vec2[], type: Segment['type']): Segment[] {
   return segs
 }
 
+/**
+ * Watabou technique: Chaikin-style 3-tap weighted vertex averaging.
+ * Removes jagged 8-directional A* stepping and smooths traced roads.
+ * End-points are pinned so roads still meet their source/destination exactly.
+ *   weight: centre vertex gets 2×, neighbours get 1× each  → w=(1,2,1)/4
+ */
+function smoothPolyline(pts: Vec2[], passes = 2): Vec2[] {
+  if (pts.length < 3) return pts
+  let cur = [...pts]
+  for (let p = 0; p < passes; p++) {
+    const next: Vec2[] = [cur[0]]
+    for (let i = 1; i < cur.length - 1; i++) {
+      next.push({
+        x: (cur[i-1].x + 2 * cur[i].x + cur[i+1].x) / 4,
+        y: (cur[i-1].y + 2 * cur[i].y + cur[i+1].y) / 4,
+      })
+    }
+    next.push(cur[cur.length - 1])
+    cur = next
+  }
+  return cur
+}
+
 // ─── Lots alongside road segments ────────────────────────────────────────────
 function shrinkPolygon(poly: Vec2[], amount: number): Vec2[] {
   const cx = poly.reduce((s,p) => s+p.x, 0) / poly.length
@@ -563,7 +586,9 @@ export function generateWorld(params: GenParams): GeneratedWorld {
       (c, r) => gridToWorld(c, r, ms),
       ASTAR_GRID,
     )
-    segments.push(...polylineToSegments(hwPath, 'highway'))
+    // Smooth 3 passes — removes the 8-directional A* staircase without
+    // losing the natural curve imposed by water-cost routing.
+    segments.push(...polylineToSegments(smoothPolyline(hwPath, 3), 'highway'))
   }
 
   // 4. Town centre — the "hub" where roads will converge.
@@ -596,7 +621,7 @@ export function generateWorld(params: GenParams): GeneratedWorld {
     // Point toward the town centre with more organic noise — roads should curve
     const toward = Math.atan2(townCenter.y - from.y, townCenter.x - from.x) + (rng()-0.5) * 0.5
     const pts = traceRoad(from, toward, params.majorSpacing * 0.45, 60, costMap, ms, field, segments, rng, 0.15, 'arterial')
-    segments.push(...polylineToSegments(pts, 'arterial'))
+    segments.push(...polylineToSegments(smoothPolyline(pts, 2), 'arterial'))
   }
 
   // 6. Arterial roads — MIXED strategy:
@@ -622,7 +647,7 @@ export function generateWorld(params: GenParams): GeneratedWorld {
         Math.floor(ms / (params.majorSpacing * 0.42)) + 6,
         costMap, ms, field, segments, rng, 0.12, 'arterial',
       )
-      segments.push(...polylineToSegments(pts, 'arterial'))
+      segments.push(...polylineToSegments(smoothPolyline(pts, 1), 'arterial'))
     }
 
     for (let i = 0; i < rimCount; i++) {
@@ -637,7 +662,7 @@ export function generateWorld(params: GenParams): GeneratedWorld {
         Math.floor(ms / (params.majorSpacing * 0.42)) + 6,
         costMap, ms, field, segments, rng, 0.12, 'arterial',
       )
-      segments.push(...polylineToSegments(pts, 'arterial'))
+      segments.push(...polylineToSegments(smoothPolyline(pts, 1), 'arterial'))
     }
   }
 
