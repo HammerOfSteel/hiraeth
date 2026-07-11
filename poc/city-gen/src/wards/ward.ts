@@ -4,7 +4,7 @@
 // Concrete subclasses live in src/wards/*.ts (Phase 3).
 
 import { Pt } from '../geom/pt'
-import { type Polygon, polyForEdge, polyShrinkEq, polyBufferEq, polySquare, polyIsConvex, polyCenter } from '../geom/polygon'
+import { type Polygon, polyForEdge, polyShrinkEq, polyBufferEq, polySquare, polyIsConvex, polyCenter, polyGetBounds } from '../geom/polygon'
 import { cross } from '../geom/geomUtils'
 import { bisect } from '../model/cutter'
 import type { Patch } from '../model/patch'
@@ -110,6 +110,17 @@ export abstract class Ward {
       }
     }
     return buildings
+  }
+
+  /** Clip a polygon to only the vertices inside the border shape; return null if too small. */
+  static filterOutskirts(polygon: Polygon, border: Polygon): Polygon | null {
+    if (polygon.length < 3) return null
+    const bounds = polyGetBounds(border)
+    const filtered = polygon.filter(v =>
+      v.x >= bounds.left && v.x <= bounds.right &&
+      v.y >= bounds.top  && v.y <= bounds.bottom,
+    )
+    return filtered.length >= 3 && filtered.length >= polygon.length * 0.5 ? filtered : null
   }
 
   /**
