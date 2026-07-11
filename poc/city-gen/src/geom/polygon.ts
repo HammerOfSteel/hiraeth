@@ -67,6 +67,19 @@ export function polyForSegment(p: Polygon, f: (a: Pt, b: Pt) => void): void {
 
 export function polyContains(p: Polygon, v: Pt): boolean { return p.indexOf(v) !== -1 }
 
+/** Ray-casting point-in-polygon test (works for any simple polygon). */
+export function polyHitTest(poly: Polygon, pt: Pt): boolean {
+  let inside = false
+  const n = poly.length
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y
+    const xj = poly[j].x, yj = poly[j].y
+    if (((yi > pt.y) !== (yj > pt.y)) && pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi)
+      inside = !inside
+  }
+  return inside
+}
+
 export function polyNext(p: Polygon, v: Pt): Pt { return p[(p.indexOf(v) + 1) % p.length] }
 export function polyPrev(p: Polygon, v: Pt): Pt { return p[(p.indexOf(v) + p.length - 1) % p.length] }
 
