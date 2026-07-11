@@ -2,6 +2,7 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 import { Model } from '../model/model'
 import { PALETTES, type Palette } from '../render2d/palette'
+import { seedFromUrl, sizeFromUrl } from '../hiraeth/api'
 
 export interface SizePreset { label: string; min: number; max: number }
 
@@ -12,7 +13,18 @@ export const SIZE_PRESETS: SizePreset[] = [
   { label: 'Large City',  min: 24, max: 40 },
 ]
 
-function randomSeed(): number { return Math.floor(Math.random() * 0xFFFFFF) }
+function randomSeed(): number {
+  return seedFromUrl() ?? Math.floor(Math.random() * 0xFFFFFF)
+}
+
+function initialPreset(): number {
+  const s = sizeFromUrl()
+  if (s === 'small-town')  return 0
+  if (s === 'large-town')  return 1
+  if (s === 'small-city')  return 2
+  if (s === 'large-city')  return 3
+  return 1
+}
 
 function patchesForPreset(p: SizePreset): number {
   return Math.floor(p.min + Math.random() * (p.max - p.min))
@@ -42,7 +54,7 @@ export function CityProvider({ children }: { children: ReactNode }) {
   const [generating, setGenerating] = useState(false)
   const [error,      setError]      = useState<string | null>(null)
   const [seed,       setSeedState]  = useState(randomSeed)
-  const [presetIdx,  setPresetIdx]  = useState(1)
+  const [presetIdx,  setPresetIdx]  = useState(initialPreset)
   const [palette,    setPalette]    = useState<Palette>(PALETTES.Default)
   const [colourMode, setColourMode] = useState(false)
   const [genMs,      setGenMs]      = useState(0)
