@@ -1,7 +1,8 @@
 import { Canvas } from '@react-three/fiber'
-import { EffectComposer, SSAO, Bloom, Vignette, TiltShift2 } from '@react-three/postprocessing'
+import { EffectComposer, Bloom, Vignette, DepthOfField } from '@react-three/postprocessing'
 import { useSceneStore } from '@/store/scene'
 import { WorldScene, AssetScene } from '@/scene/Scenes'
+import { CityScene } from '@/city/CityScene'
 import { Sidebar } from '@/ui/Sidebar'
 
 export default function App() {
@@ -17,23 +18,23 @@ export default function App() {
           camera={{ fov: 35, near: 0.5, far: 800, position: [80, 60, 80] }}
           gl={{ antialias: true, powerPreference: 'high-performance' }}
         >
-          {viewMode === 'world' ? <WorldScene /> : <AssetScene />}
+          {viewMode === 'city'  ? <CityScene /> :
+           viewMode === 'world' ? <WorldScene /> :
+                                  <AssetScene />}
 
           <EffectComposer>
-            <SSAO
-              radius={0.05}
-              intensity={20}
-              luminanceInfluence={0.1}
-              color="black"
+            <DepthOfField
+              focusDistance={0.01}
+              focalLength={0.04}
+              bokehScale={1.8}
             />
             <Bloom
-              luminanceThreshold={0.6}
+              luminanceThreshold={0.55}
               luminanceSmoothing={0.9}
-              intensity={0.4}
+              intensity={0.5}
               mipmapBlur
             />
-            <TiltShift2 blur={0.15} />
-            <Vignette offset={0.35} darkness={0.6} />
+            <Vignette offset={0.35} darkness={0.55} />
           </EffectComposer>
         </Canvas>
 

@@ -1,8 +1,11 @@
+import { useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { useSceneStore } from '@/store/scene'
 import { BLUEPRINTS } from '@/scene/BuildingFactory'
 import type { BuildingType, WeatherState } from '@/store/scene'
-import { Sun, Cloud, CloudRain, Globe, Box } from 'lucide-react'
+import type { CityJSON } from '@/city/types'
+import { isMFCGJson } from '@/city/types'
+import { Sun, Cloud, CloudRain, Globe, Box, Map, Upload, X } from 'lucide-react'
 
 const BUILDING_TYPES = Object.keys(BLUEPRINTS) as BuildingType[]
 
@@ -29,8 +32,26 @@ function getTimeLabel(t: number): string {
 }
 
 export function Sidebar() {
-  const { timeOfDay, weather, viewMode, selectedAsset, setTime, setWeather, setViewMode, setSelectedAsset } =
+  const { timeOfDay, weather, viewMode, selectedAsset, cityData, setTime, setWeather, setViewMode, setSelectedAsset, setCityData } =
     useSceneStore()
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  function handleCityFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const raw = JSON.parse(ev.target?.result as string)
+        if (!isMFCGJson(raw)) throw new Error('Not a valid MFCG export — expected a FeatureCollection with a buildings feature')
+        setCityData(raw)
+      } catch (err) {
+        alert(`Could not load city: ${err}`)
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
 
   return (
     <aside className="
@@ -48,8 +69,64 @@ export function Sidebar() {
         </p>
       </div>
 
+      {/* City import panel */}
+      <div className="px-4">
+        <p className="text-[11px] uppercase tracking-[0.15em] text-[#5a6a7a] mb-2">City Map</p>
+        {cityData ? (
+          <div className="rounded border border-[#2a4a3a] bg-[#0d1f18] p-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-[#60c080]">City loaded ✓</span>
+              <button
+                onClick={() => setCityData(null)}
+                className="text-[#5a6a7a] hover:text-[#c05050] transition-colors"
+                title="Unload city"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            <p className="text-[10px] text-[#4a6a5a]">
+              {(cityData.features.find(f => f.id === 'buildings') as {coordinates?: unknown[]})?.coordinates?.length ?? '?'} buildings · v{(cityData.features.find(f => f.id === 'values') as {version?: string})?.version ?? '?'}
+            </p>
+            <button
+              onClick={() => setViewMode('city')}
+              className={cn(
+                'text-xs py-1 px-2 rounded border transition-all',
+                viewMode === 'city'
+                  ? 'bg-[#1a3a28] text-[#80e0a0] border-[#2a6040]'
+                  : 'text-[#60a070] border-[#2a4a38] hover:bg-[#1a3028]'
+              )}
+            >
+              <Map size={11} className="inline mr-1" />
+              View City
+            </button>
+          </div>
+        ) : (
+          <div
+            onClick={() => fileRef.current?.click()}
+            className="
+              rounded border-2 border-dashed border-[#252d3a] hover:border-[#3a5060]
+              p-4 flex flex-col items-center gap-2 cursor-pointer
+              text-[#3a4a5a] hover:text-[#6a8a9a] transition-all
+            "
+          >
+            <Upload size={18} />
+            <span className="text-[11px] text-center leading-tight">
+              Drop MFCG JSON here<br />
+              <span className="text-[9px] text-[#2a3a4a]">
+                or click to browse
+              </span>
+            </span>
+          </div>
+        )}
+        <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={handleCityFile} />
+        <p className="text-[9px] text-[#2a3a48] mt-1.5 leading-tight">
+          Generate at <span className="text-[#3a5a6a]">watabou.itch.io/mfcg</span>
+          {' '}→ right-click → Save
+        </p>
+      </div>
+
       {/* View mode toggle */}
-      <div className="px-4 flex gap-2">
+      <div className="px-4 flex gap-2 flex-wrap">
         <button
           onClick={() => setViewMode('world')}
           className={cn(
@@ -72,6 +149,19 @@ export function Sidebar() {
         >
           <Box size={13} /> Asset View
         </button>
+        {cityData && (
+          <button
+            onClick={() => setViewMode('city')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all',
+              viewMode === 'city'
+                ? 'bg-[#1a3a28] text-[#80e0a0] border border-[#2a6040]'
+                : 'text-[#4a7a5a] hover:text-[#80b890] border border-transparent'
+            )}
+          >
+            <Map size={13} /> City
+          </button>
+        )}
       </div>
 
       {/* Time of day */}

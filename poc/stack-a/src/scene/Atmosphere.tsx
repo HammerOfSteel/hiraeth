@@ -1,49 +1,19 @@
-import { useRef, useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useSceneStore, getSunParams } from '@/store/scene'
 
 export function Sky() {
-  const meshRef = useRef<THREE.Mesh>(null!)
-  const matRef  = useRef<THREE.ShaderMaterial>(null!)
   const t = useSceneStore((s) => s.timeOfDay)
-
   const { skyTop, skyBot } = getSunParams(t)
 
-  const uniforms = useMemo(() => ({
-    uTop: { value: new THREE.Color(...skyTop) },
-    uBot: { value: new THREE.Color(...skyBot) },
-  }), [])  // eslint-disable-line react-hooks/exhaustive-deps
-
-  useFrame(() => {
-    const p = getSunParams(useSceneStore.getState().timeOfDay)
-    uniforms.uTop.value.setRGB(...p.skyTop)
-    uniforms.uBot.value.setRGB(...p.skyBot)
-  })
-
   return (
-    <mesh ref={meshRef} scale={[-1, 1, 1]}>
+    <mesh scale={[-1, 1, 1]}>
       <sphereGeometry args={[400, 32, 16]} />
-      <shaderMaterial
-        ref={matRef}
-        uniforms={uniforms}
-        vertexShader={`
-          varying vec3 vWorldPos;
-          void main() {
-            vWorldPos = position;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }
-        `}
-        fragmentShader={`
-          uniform vec3 uTop;
-          uniform vec3 uBot;
-          varying vec3 vWorldPos;
-          void main() {
-            float t = clamp(vWorldPos.y / 300.0, 0.0, 1.0);
-            gl_FragColor = vec4(mix(uBot, uTop, t), 1.0);
-          }
-        `}
+      <meshBasicMaterial
+        color={new THREE.Color(...skyTop).lerp(new THREE.Color(...skyBot), 0.4)}
         side={THREE.BackSide}
+        toneMapped={false}
       />
     </mesh>
   )
@@ -117,7 +87,7 @@ export function RainSystem() {
   return (
     <points>
       <bufferGeometry ref={geoRef}>
-        <bufferAttribute attach="attributes-position" args={[posArr, 3]} />
+        <bufferAttribute attach="attributes-position" count={count} array={posArr} itemSize={3} />
       </bufferGeometry>
       <pointsMaterial
         color="#a8c4d8"

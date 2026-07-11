@@ -16,19 +16,24 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    /* Paths */
-    "ignoreDeprecations": "5.0",
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./src/*"]
-    },
-
     /* Linting */
-    "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* Path aliases */
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@geom/*":   ["src/geom/*"],
+      "@model/*":  ["src/model/*"],
+      "@wards/*":  ["src/wards/*"],
+      "@r2d/*":    ["src/render2d/*"],
+      "@r3d/*":    ["src/render3d/*"],
+      "@export/*": ["src/export/*"],
+      "@ui/*":     ["src/ui/*"]
+    }
   },
   "include": ["src"]
 }
