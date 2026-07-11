@@ -358,36 +358,58 @@ function findTownCenter(hwSegs: Segment[]): Vec2 {
 
 /**
  * Generate a regular grid of "collector" streets around the town centre.
- * This creates the dense block pattern — Gemini's "Phase B: The Subdivider."
+ * Rotated to align with the highway and jittered for an organic feel.
+ * Gemini Phase B: The Subdivider.
  */
 function generateCoreGrid(
   center:  Vec2,
   spacing: number,
   n:       number,
+  hwAngle: number,    // rotate grid to align streets with the main road
   costMap: Float32Array,
   ms:      number,
+  rng:     () => number,
 ): Segment[] {
   const segs    = [] as Segment[]
   const halfMap = ms / 2 - 6
+  const JITTER  = spacing * 0.22   // up to 22% of spacing — makes it feel hand-drawn
+
+  const bx = { x: Math.cos(hwAngle), y: Math.sin(hwAngle) }    // along highway
+  const by = { x: -Math.sin(hwAngle), y: Math.cos(hwAngle) }   // perpendicular
+
+  // Build a grid of slightly jittered intersection nodes in the rotated frame.
+  // Edge nodes stay fixed so the block boundary is clean.
+  const dim = 2*n + 1
+  const nodes: Vec2[] = []
+  for (let r = -n; r <= n; r++) {
+    for (let c = -n; c <= n; c++) {
+      const isEdge = r === -n || r === n || c === -n || c === n
+      const jx = isEdge ? 0 : (rng()-0.5) * JITTER
+      const jy = isEdge ? 0 : (rng()-0.5) * JITTER
+      const lx = c * spacing + jx, ly = r * spacing + jy
+      nodes[(r+n)*dim + (c+n)] = {
+        x: center.x + lx * bx.x + ly * by.x,
+        y: center.y + lx * bx.y + ly * by.y,
+      }
+    }
+  }
+
+  const at = (r: number, c: number) => nodes[(r+n)*dim + (c+n)]
 
   for (let r = -n; r <= n; r++) {
-    const y = center.y + r * spacing
-    if (Math.abs(y) > halfMap) continue
     for (let c = -n; c < n; c++) {
-      const a: Vec2 = { x: center.x + c * spacing, y }
-      const b: Vec2 = { x: center.x + (c+1) * spacing, y }
+      const a = at(r, c), b = at(r, c+1)
       if (Math.abs(a.x) > halfMap || Math.abs(b.x) > halfMap) continue
+      if (Math.abs(a.y) > halfMap || Math.abs(b.y) > halfMap) continue
       if (costAt(a, costMap, ms) > 50 || costAt(b, costMap, ms) > 50) continue
       segs.push({ a, b, type: 'arterial' })
     }
   }
 
   for (let c = -n; c <= n; c++) {
-    const x = center.x + c * spacing
-    if (Math.abs(x) > halfMap) continue
     for (let r = -n; r < n; r++) {
-      const a: Vec2 = { x, y: center.y + r * spacing }
-      const b: Vec2 = { x, y: center.y + (r+1) * spacing }
+      const a = at(r, c), b = at(r+1, c)
+      if (Math.abs(a.x) > halfMap || Math.abs(b.x) > halfMap) continue
       if (Math.abs(a.y) > halfMap || Math.abs(b.y) > halfMap) continue
       if (costAt(a, costMap, ms) > 50 || costAt(b, costMap, ms) > 50) continue
       segs.push({ a, b, type: 'arterial' })
@@ -403,44 +425,51 @@ function generateCoreGrid(
  * not just scattered along road edges.
  */
 function coreBlockLots(
-  center:   Vec2,
-  spacing:  number,
-  n:        number,
+  center:    Vec2,
+  spacing:   number,
+  n:         number,
+  hwAngle:   number,    // rotate lots to align with the highway grid
   lotShrink: number,
-  costMap:  Float32Array,
-  ms:       number,
+  costMap:   Float32Array,
+  ms:        number,
 ): Lot[] {
   const lots    = [] as Lot[]
   const halfMap = ms / 2 - 4
-  // Road edge is at roadHalfWidth (5) + 0.5 from grid line → use 5.5 margin
   const inset   = 5.5
-  const inner   = spacing - 2 * inset      // usable block interior
-  if (inner < 6) return lots               // grid too tight to fit lots
+  const inner   = spacing - 2 * inset
+  if (inner < 6) return lots
   const LOTS_PER = 2
   const lotW  = inner / LOTS_PER
 
+  const bx = { x: Math.cos(hwAngle), y: Math.sin(hwAngle) }
+  const by = { x: -Math.sin(hwAngle), y: Math.cos(hwAngle) }
+  const toWorld = (lx: number, ly: number): Vec2 => ({
+    x: center.x + lx * bx.x + ly * by.x,
+    y: center.y + lx * bx.y + ly * by.y,
+  })
+
   for (let br = -n; br < n; br++) {
     for (let bc = -n; bc < n; bc++) {
-      const x0 = center.x + bc * spacing + inset
-      const y0 = center.y + br * spacing + inset
-      const bCX = x0 + inner * 0.5, bCY = y0 + inner * 0.5
-      if (costAt({ x: bCX, y: bCY }, costMap, ms) > 50) continue
+      const x0 = bc * spacing + inset, y0 = br * spacing + inset
+      const bCW = toWorld(x0 + inner*0.5, y0 + inner*0.5)
+      if (costAt(bCW, costMap, ms) > 50) continue
 
       for (let lr = 0; lr < LOTS_PER; lr++) {
         for (let lc = 0; lc < LOTS_PER; lc++) {
           const lx0 = x0 + lc * lotW, ly0 = y0 + lr * lotW
           const lx1 = lx0 + lotW,    ly1 = ly0 + lotW
-          const cx = (lx0+lx1) / 2,  cy = (ly0+ly1) / 2
-          if (Math.abs(cx) > halfMap || Math.abs(cy) > halfMap) continue
-          if (costAt({ x: cx, y: cy }, costMap, ms) > 20) continue
+          const cW  = toWorld((lx0+lx1)/2, (ly0+ly1)/2)
+
+          if (Math.abs(cW.x) > halfMap || Math.abs(cW.y) > halfMap) continue
+          if (costAt(cW, costMap, ms) > 20) continue
 
           const m = lotW * Math.max(0.02, lotShrink * 0.6)
           lots.push({
             polygon: [
-              { x: lx0+m, y: ly0+m },
-              { x: lx1-m, y: ly0+m },
-              { x: lx1-m, y: ly1-m },
-              { x: lx0+m, y: ly1-m },
+              toWorld(lx0+m, ly0+m),
+              toWorld(lx1-m, ly0+m),
+              toWorld(lx1-m, ly1-m),
+              toWorld(lx0+m, ly1-m),
             ],
             blockId: (br + n) * (2*n) + (bc + n),
             type:    'residential',
@@ -541,12 +570,20 @@ export function generateWorld(params: GenParams): GeneratedWorld {
   //    Placed at the point on the highway closest to the map origin.
   const townCenter = findTownCenter(segments.filter(s => s.type === 'highway'))
 
-  // 4b. Core grid — regular block streets around the town centre.
-  //     Creates the dense "urban core" block pattern.
-  //     gridN scales with map size so larger maps get a proportionally bigger town.
+  // Compute the highway's overall bearing so the core grid aligns with the road.
+  const hwSegsAll = segments.filter(s => s.type === 'highway')
+  const hwAngle   = hwSegsAll.length >= 2
+    ? Math.atan2(
+        hwSegsAll[hwSegsAll.length-1].b.y - hwSegsAll[0].a.y,
+        hwSegsAll[hwSegsAll.length-1].b.x - hwSegsAll[0].a.x,
+      )
+    : 0
+
+  // 4b. Core grid — regular block streets around the town centre,
+  //     aligned with the highway and organically jittered.
   const gridSpacing = params.majorSpacing * 1.15
   const gridN       = Math.max(2, Math.round(ms / 110))
-  segments.push(...generateCoreGrid(townCenter, gridSpacing, gridN, costMap, ms))
+  segments.push(...generateCoreGrid(townCenter, gridSpacing, gridN, hwAngle, costMap, ms, rng))
 
   // 5. Spine roads — two roads that converge on the town centre, creating the
   //    main "high street" crossroads typical of British market towns.
@@ -556,9 +593,9 @@ export function generateWorld(params: GenParams): GeneratedWorld {
       x: Math.cos(dir + Math.PI) * half * 0.82,
       y: Math.sin(dir + Math.PI) * half * 0.82,
     }
-    // Point toward the town centre, not the geometric origin — creates converging high streets
-    const toward = Math.atan2(townCenter.y - from.y, townCenter.x - from.x) + (rng()-0.5) * 0.18
-    const pts = traceRoad(from, toward, params.majorSpacing * 0.45, 60, costMap, ms, field, segments, rng, 0.06, 'arterial')
+    // Point toward the town centre with more organic noise — roads should curve
+    const toward = Math.atan2(townCenter.y - from.y, townCenter.x - from.x) + (rng()-0.5) * 0.5
+    const pts = traceRoad(from, toward, params.majorSpacing * 0.45, 60, costMap, ms, field, segments, rng, 0.15, 'arterial')
     segments.push(...polylineToSegments(pts, 'arterial'))
   }
 
@@ -577,13 +614,13 @@ export function generateWorld(params: GenParams): GeneratedWorld {
       if (hwSegs.length === 0) break
       const hwSeg  = hwSegs[Math.floor(rng() * hwSegs.length)]
       const origin = v2.lerp(hwSeg.a, hwSeg.b, rng())
-      // Aim toward town centre with organic noise
-      const toward = Math.atan2(townCenter.y - origin.y, townCenter.x - origin.x) + (rng()-0.5) * 0.7
+      // Aim toward town centre with enough noise to stay organic
+      const toward = Math.atan2(townCenter.y - origin.y, townCenter.x - origin.x) + (rng()-0.5) * 0.8
       const pts = traceRoad(
         origin, toward,
         params.majorSpacing * 0.42,
         Math.floor(ms / (params.majorSpacing * 0.42)) + 6,
-        costMap, ms, field, segments, rng, 0.07, 'arterial',
+        costMap, ms, field, segments, rng, 0.12, 'arterial',
       )
       segments.push(...polylineToSegments(pts, 'arterial'))
     }
@@ -593,12 +630,12 @@ export function generateWorld(params: GenParams): GeneratedWorld {
       const dist   = half * (0.65 + rng() * 0.25)
       const start: Vec2 = { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist }
       // Aim toward town centre (not just generic centre)
-      const toward = Math.atan2(townCenter.y - start.y, townCenter.x - start.x) + (rng()-0.5) * 0.5
+      const toward = Math.atan2(townCenter.y - start.y, townCenter.x - start.x) + (rng()-0.5) * 0.6
       const pts = traceRoad(
         start, toward,
         params.majorSpacing * 0.42,
         Math.floor(ms / (params.majorSpacing * 0.42)) + 6,
-        costMap, ms, field, segments, rng, 0.07, 'arterial',
+        costMap, ms, field, segments, rng, 0.12, 'arterial',
       )
       segments.push(...polylineToSegments(pts, 'arterial'))
     }
@@ -653,7 +690,7 @@ export function generateWorld(params: GenParams): GeneratedWorld {
 
   // 9a. Core block lots (Gemini Phase B: fill blocks between grid roads)
   //     Added first so they claim the occupancy grid before suburban lots.
-  for (const lot of coreBlockLots(townCenter, gridSpacing, gridN, params.lotShrink, costMap, ms)) {
+  for (const lot of coreBlockLots(townCenter, gridSpacing, gridN, hwAngle, params.lotShrink, costMap, ms)) {
     const c    = centroid(lot.polygon)
     const keys = [lotKey(c), lotKey({x:c.x+CELL,y:c.y}), lotKey({x:c.x-CELL,y:c.y}), lotKey({x:c.x,y:c.y+CELL}), lotKey({x:c.x,y:c.y-CELL})]
     if (keys.some(k => occupied.has(k))) continue
