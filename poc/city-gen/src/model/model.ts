@@ -84,9 +84,9 @@ export class Model {
     this.patches = []
     this.inner   = []
 
-    this._plazaNeeded   = this._rng.bool()
-    this._citadelNeeded = this._rng.bool()
-    this._wallsNeeded   = this._rng.bool()
+    this._plazaNeeded   = this.rng.bool()
+    this._citadelNeeded = this.rng.bool()
+    this._wallsNeeded   = this.rng.bool()
   }
 
   build(): this {

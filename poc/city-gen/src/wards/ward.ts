@@ -141,7 +141,9 @@ export abstract class Ward {
       return v
     }
 
-    function slice(pp: Polygon, c1: Pt, c2: Pt): Polygon[] {
+    function slice(pp: Polygon, c1: Pt, c2: Pt, depth = 0): Polygon[] {
+      if (depth > 20) return rng() < fill ? [pp] : []
+
       const v0 = findLongestEdge(pp)
       const v1 = pp[(pp.indexOf(v0) + 1) % pp.length]
       const ev = v1.subtract(v0)
@@ -150,13 +152,17 @@ export abstract class Ward {
       const c  = Math.abs(cross(ev.x, ev.y, c1.x, c1.y)) < Math.abs(cross(ev.x, ev.y, c2.x, c2.y)) ? c1 : c2
       const halves = polyCut(pp, p1, p1.add(c))
 
+      // polyCut returns [[...pp]] when the cut line misses the polygon.
+      // Treat a failed cut as a terminal building block.
+      if (halves.length < 2) return rng() < fill ? [pp] : []
+
       const result: Polygon[] = []
       for (const h of halves) {
         const sq = Math.abs(polySquare(h))
         if (sq < minBlockSq * Math.pow(2, rng() * 2 - 1)) {
           if (rng() < fill) result.push(h)
         } else {
-          result.push(...slice(h, c1, c2))
+          result.push(...slice(h, c1, c2, depth + 1))
         }
       }
       return result
@@ -167,7 +173,7 @@ export abstract class Ward {
     const c1 = poly[(poly.indexOf(v0) + 1) % poly.length].subtract(v0)
     const c2 = c1.rotate90()
     for (let attempt = 0; attempt < 20; attempt++) {
-      const blocks = slice(poly, c1, c2)
+      const blocks = slice(poly, c1, c2, 0)
       if (blocks.length > 0) return blocks
     }
     return [poly]

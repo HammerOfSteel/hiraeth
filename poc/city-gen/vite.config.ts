@@ -5,6 +5,11 @@ import { resolve } from 'path'
 
 // https://vite.dev/config/
 export default defineConfig({
+  test: {
+    environment: 'node',
+    include:     ['src/**/*.test.ts'],
+    globals:     true,
+  },
   plugins: [react(), tailwindcss()],
   server: { port: 5210 },
   resolve: {
