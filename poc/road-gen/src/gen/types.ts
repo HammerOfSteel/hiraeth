@@ -6,7 +6,7 @@ export interface Vec2 {
 export interface Segment {
   a: Vec2
   b: Vec2
-  type: 'arterial' | 'residential'
+  type: 'highway' | 'arterial' | 'residential'
 }
 
 export interface Intersection {
@@ -17,7 +17,10 @@ export interface Intersection {
 export interface Lot {
   polygon: Vec2[]
   blockId: number
+  type: LotType
 }
+
+export type LotType = 'residential' | 'commercial' | 'civic' | 'green'
 
 export interface RiverPath {
   pts: Vec2[]
@@ -27,7 +30,7 @@ export interface RiverPath {
 export interface Bridge {
   a: Vec2
   b: Vec2
-  type: 'arterial' | 'residential'
+  type: 'highway' | 'arterial' | 'residential'
 }
 
 export interface GeneratedWorld {

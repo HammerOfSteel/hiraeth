@@ -7,7 +7,8 @@
  */
 
 import { seededRng, v2, buildTensorField } from './math'
-import type { Vec2, Segment, Lot, Bridge, RiverPath, GeneratedWorld, GenParams } from './types'
+import { astar } from './astar'
+import type { Vec2, Segment, Lot, LotType, Bridge, RiverPath, GeneratedWorld, GenParams } from './types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const ROAD_SNAP_DIST  = 16   // snap to nearby road endpoint
@@ -19,6 +20,13 @@ function worldToGrid(v: Vec2, mapSize: number): { col: number; row: number } {
   return {
     col: Math.max(0, Math.min(ASTAR_GRID-1, Math.round((v.x/mapSize+0.5)*(ASTAR_GRID-1)))),
     row: Math.max(0, Math.min(ASTAR_GRID-1, Math.round((v.y/mapSize+0.5)*(ASTAR_GRID-1)))),
+  }
+}
+
+function gridToWorld(col: number, row: number, mapSize: number): Vec2 {
+  return {
+    x: (col/(ASTAR_GRID-1) - 0.5) * mapSize,
+    y: (row/(ASTAR_GRID-1) - 0.5) * mapSize,
   }
 }
 
@@ -174,7 +182,96 @@ function traceRoad(
   return pts
 }
 
-function polylineToSegments(pts: Vec2[], type: 'arterial' | 'residential'): Segment[] {
+// ─── Union-Find for connectivity repair ───────────────────────────────────────
+class UnionFind {
+  private p: number[]
+  private rank: number[]
+  constructor(n: number) {
+    this.p    = Array.from({ length: n }, (_, i) => i)
+    this.rank = new Array(n).fill(0)
+  }
+  find(x: number): number {
+    if (this.p[x] !== x) this.p[x] = this.find(this.p[x])
+    return this.p[x]
+  }
+  union(x: number, y: number): void {
+    const px = this.find(x), py = this.find(y)
+    if (px === py) return
+    if (this.rank[px] < this.rank[py]) this.p[px] = py
+    else if (this.rank[px] > this.rank[py]) this.p[py] = px
+    else { this.p[py] = px; this.rank[px]++ }
+  }
+}
+
+/**
+ * Post-process connectivity repair.
+ * Finds segments not reachable from the highway and stitches them back
+ * with a short organic connector road.  Up to 5 orphaned components bridged.
+ */
+function ensureConnectivity(segments: Segment[], mapSize: number, rng: () => number): Segment[] {
+  if (segments.length === 0) return []
+  const hwSeg = segments.find(s => s.type === 'highway')
+  if (!hwSeg) return []
+
+  const SNAP = 8
+  const keyToId = new Map<string, number>()
+  const nodePos: Vec2[] = []
+
+  const getNode = (v: Vec2): number => {
+    const k = `${Math.round(v.x/SNAP)},${Math.round(v.y/SNAP)}`
+    if (!keyToId.has(k)) { keyToId.set(k, nodePos.length); nodePos.push(v) }
+    return keyToId.get(k)!
+  }
+
+  const buildUF = (allSegs: Segment[]) => {
+    for (const s of allSegs) { getNode(s.a); getNode(s.b) }
+    const uf = new UnionFind(nodePos.length)
+    for (const s of allSegs) uf.union(getNode(s.a), getNode(s.b))
+    return uf
+  }
+
+  const added: Segment[] = []
+
+  for (let pass = 0; pass < 6; pass++) {
+    const allSegs = [...segments, ...added]
+    const uf      = buildUF(allSegs)
+    const hwRoot  = uf.find(getNode(hwSeg.a))
+
+    // Find the orphan endpoint closest to any connected segment
+    let bestDist    = Infinity
+    let orphanPt:  Vec2 | null = null
+    let targetPt:  Vec2 | null = null
+
+    for (const seg of allSegs) {
+      if (uf.find(getNode(seg.a)) === hwRoot) continue     // already connected
+      for (const ep of [seg.a, seg.b]) {
+        for (const cSeg of allSegs) {
+          if (uf.find(getNode(cSeg.a)) !== hwRoot) continue // skip disconnected
+          const { pt, dist } = nearestOnSegment(ep, cSeg.a, cSeg.b)
+          if (dist < bestDist) { bestDist = dist; orphanPt = ep; targetPt = pt }
+        }
+      }
+    }
+
+    if (!orphanPt || !targetPt || bestDist > mapSize * 0.8) break
+
+    // Organic connector: add a noisy midpoint for longer bridges
+    if (bestDist > 20) {
+      const mid: Vec2 = {
+        x: (orphanPt.x + targetPt.x) / 2 + (rng()-0.5) * bestDist * 0.28,
+        y: (orphanPt.y + targetPt.y) / 2 + (rng()-0.5) * bestDist * 0.28,
+      }
+      added.push({ a: orphanPt, b: mid, type: 'arterial' })
+      added.push({ a: mid, b: targetPt, type: 'arterial' })
+    } else {
+      added.push({ a: orphanPt, b: targetPt, type: 'arterial' })
+    }
+  }
+
+  return added
+}
+
+function polylineToSegments(pts: Vec2[], type: Segment['type']): Segment[] {
   const segs: Segment[] = []
   for (let i = 0; i < pts.length - 1; i++) {
     if (v2.dist(pts[i], pts[i+1]) >= MIN_SEG_LEN) {
@@ -201,10 +298,12 @@ function generateRoadLots(
   lotShrink: number,
 ): Lot[] {
   const lots: Lot[] = []
-  const isArterial     = seg.type === 'arterial'
-  const spacing        = isArterial ? 14 : 11
-  const depth          = isArterial ? 18 : 13
-  const roadHalfWidth  = isArterial ? 5  : 3.5
+  // Highways generate wider lots (shops/commercial strips) on both sides
+  const isHighway      = seg.type === 'highway'
+  const isArterial     = seg.type === 'arterial' || isHighway
+  const spacing        = isHighway ? 16 : isArterial ? 14 : 11
+  const depth          = isHighway ? 20 : isArterial ? 18 : 13
+  const roadHalfWidth  = isHighway ? 7  : isArterial ? 5  : 3.5
 
   const dir  = v2.norm(v2.sub(seg.b, seg.a))
   const perp = v2.perp(dir)
@@ -232,10 +331,42 @@ function generateRoadLots(
         v2.add(outer, v2.scale(dir,  hw)),
         v2.add(outer, v2.scale(dir, -hw)),
       ]
-      lots.push({ polygon: shrinkPolygon(poly, lotShrink), blockId: -1 })
+      lots.push({ polygon: shrinkPolygon(poly, lotShrink), blockId: -1, type: 'residential' })
     }
   }
   return lots
+}
+
+// ─── Lot type classification via influence ────────────────────────────────────
+function classifyLot(
+  c: Vec2,
+  segments: Segment[],
+  mapSize: number,
+  rng: () => number,
+): LotType {
+  let minHighwayDist   = Infinity
+  let minArterialDist  = Infinity  // highway or arterial
+  let minAnyRoadDist   = Infinity
+
+  for (const seg of segments) {
+    const { dist } = nearestOnSegment(c, seg.a, seg.b)
+    if (dist < minAnyRoadDist) minAnyRoadDist = dist
+    if (seg.type === 'highway' && dist < minHighwayDist) minHighwayDist = dist
+    if ((seg.type === 'highway' || seg.type === 'arterial') && dist < minArterialDist) minArterialDist = dist
+  }
+
+  const distFromCenter = Math.sqrt(c.x*c.x + c.y*c.y) / mapSize
+
+  // Civic: moderate distance from center, on major road
+  if (distFromCenter < 0.18 && minArterialDist < 12 && rng() < 0.12) return 'civic'
+  // Highway strip → strongly commercial
+  if (minHighwayDist < 22 && rng() < 0.7) return 'commercial'
+  // Arterial frontage → mostly commercial
+  if (minArterialDist < 10 && rng() < 0.45) return 'commercial'
+  // Back lots away from all roads → green space / park
+  if (minAnyRoadDist > 22 && rng() < 0.4) return 'green'
+  // Default: residential
+  return 'residential'
 }
 
 // ─── Main generation ─────────────────────────────────────────────────────────
@@ -260,7 +391,31 @@ export function generateWorld(params: GenParams): GeneratedWorld {
 
   const segments: Segment[] = []
 
-  // 3. Two spine roads through the centre (always present)
+  // 3. Highway — A* from one map edge to the opposite, routing around water.
+  //    This is the "main road" that connects the settlement to the outside world.
+  {
+    // Pick two opposing edge midpoints with slight random offset
+    const axis = rng() < 0.5 ? 'h' : 'v'  // horizontal or vertical highway
+    const offset = (rng() - 0.5) * ms * 0.35
+    const entryPt: Vec2 = axis === 'h'
+      ? { x: -half, y: offset }
+      : { x: offset, y: -half }
+    const exitPt: Vec2  = axis === 'h'
+      ? { x:  half, y: offset + (rng()-0.5)*ms*0.25 }
+      : { x: offset + (rng()-0.5)*ms*0.25, y: half }
+
+    // Lower highway cost map (roads prefer to go along existing low-cost paths)
+    const hwPath = astar(
+      entryPt, exitPt,
+      costMap, ms,
+      (v) => worldToGrid(v, ms),
+      (c, r) => gridToWorld(c, r, ms),
+      ASTAR_GRID,
+    )
+    segments.push(...polylineToSegments(hwPath, 'highway'))
+  }
+
+  // 4. Spine roads through the centre
   const spineAngle = field.sample(0, 0)
   for (const dir of [spineAngle, spineAngle + Math.PI * 0.5]) {
     const from: Vec2 = {
@@ -271,23 +426,31 @@ export function generateWorld(params: GenParams): GeneratedWorld {
     segments.push(...polylineToSegments(pts, 'arterial'))
   }
 
-  // 4. Arterial roads — radiate inward from perimeter
-  for (let i = 0; i < params.arterialCount; i++) {
-    const angle  = (i / params.arterialCount) * Math.PI * 2
-    const dist   = half * (0.65 + rng() * 0.25)
-    const start: Vec2 = { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist }
-    const toward = Math.atan2(-start.y, -start.x) + (rng()-0.5) * 0.5
-
-    const pts = traceRoad(
-      start, toward,
-      params.majorSpacing * 0.42,
-      Math.floor(ms / (params.majorSpacing * 0.42)) + 6,
-      costMap, ms, field, segments, rng, 0.07, 'arterial',
-    )
-    segments.push(...polylineToSegments(pts, 'arterial'))
+  // 5. Arterial roads — branch FROM the highway (Reverse Growing: mathematically
+  //    impossible to be orphaned because every arterial STARTS on the highway).
+  //    Alternating sides + organic angle noise creates a natural "fishbone" layout
+  //    typical of British A-road settlements.
+  {
+    const hwSegs = segments.filter(s => s.type === 'highway')
+    for (let i = 0; i < params.arterialCount; i++) {
+      if (hwSegs.length === 0) break
+      const hwSeg = hwSegs[Math.floor(rng() * hwSegs.length)]
+      const origin = v2.lerp(hwSeg.a, hwSeg.b, rng())
+      const hwAngle = Math.atan2(hwSeg.b.y - hwSeg.a.y, hwSeg.b.x - hwSeg.a.x)
+      // Alternate sides, add ±37° organic noise
+      const side = i % 2 === 0 ? 1 : -1
+      const toward = hwAngle + Math.PI * 0.5 * side + (rng()-0.5) * 0.65
+      const pts = traceRoad(
+        origin, toward,
+        params.majorSpacing * 0.42,
+        Math.floor(ms / (params.majorSpacing * 0.42)) + 6,
+        costMap, ms, field, segments, rng, 0.07, 'arterial',
+      )
+      segments.push(...polylineToSegments(pts, 'arterial'))
+    }
   }
 
-  // 5. Residential roads — branch perpendicular off arterials
+  // 6. Residential roads — branch perpendicular off arterials
   const artSegs  = segments.filter(s => s.type === 'arterial')
   const resCount = Math.floor(params.arterialCount * 3 * params.residentialDensity)
 
@@ -313,7 +476,12 @@ export function generateWorld(params: GenParams): GeneratedWorld {
     segments.push(...polylineToSegments(pts, 'residential'))
   }
 
-  // 6. Lots alongside every road segment — with occupancy-grid overlap prevention
+  // 7. Connectivity repair — Union-Find post-process.
+  //    Any component not reachable from the highway gets a short connector road.
+  //    Safety net for spine roads or any edge-case orphans.
+  segments.push(...ensureConnectivity(segments, ms, rng))
+
+  // 8. Lots alongside every road segment — with occupancy-grid overlap prevention
   const lots: Lot[] = []
   const CELL = 5  // world units per occupancy cell
   const occupied = new Set<string>()
@@ -340,7 +508,13 @@ export function generateWorld(params: GenParams): GeneratedWorld {
     }
   }
 
-  // 7. Detect bridge crossings (road segments that pass through water)
+  // 8b. Classify each lot by influence map (commercial/civic/green/residential)
+  for (const lot of lots) {
+    const c = centroid(lot.polygon)
+    lot.type = classifyLot(c, segments, ms, rng)
+  }
+
+  // 9. Detect bridge crossings (road segments that pass through water)
   const bridges: Bridge[] = []
   const BRIDGE_STEPS = 20
   for (const seg of segments) {

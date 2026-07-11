@@ -6,10 +6,14 @@ const COLORS = {
   ground:       '#1a1e28',
   waterFill:    '#1a2d4a',
   waterEdge:    '#1e4060',
+  highway:      '#ff9944',
   arterial:     '#f5c842',
   residential:  '#8ab4e8',
-  lotFill:      '#1e3020',
-  lotEdge:      '#3a6a3a',
+  // Lot types
+  lotRes:       { fill: '#1e3020', edge: '#3a6a3a' },
+  lotCommercial:{ fill: '#2a1a08', edge: '#7a4a18' },
+  lotCivic:     { fill: '#0e1e32', edge: '#2a4a7a' },
+  lotGreen:     { fill: '#0e2a0e', edge: '#2a7a2a' },
   grid:         '#ffffff08',
 }
 
@@ -131,6 +135,10 @@ export function renderWorld(
   if (opts.showLots) {
     for (const lot of world.lots) {
       if (lot.polygon.length < 3) continue
+      const palette = lot.type === 'commercial' ? COLORS.lotCommercial
+                    : lot.type === 'civic'      ? COLORS.lotCivic
+                    : lot.type === 'green'      ? COLORS.lotGreen
+                    : COLORS.lotRes
       ctx.beginPath()
       const [sx0, sy0] = toScreen(lot.polygon[0].x, lot.polygon[0].y)
       ctx.moveTo(sx0, sy0)
@@ -139,21 +147,22 @@ export function renderWorld(
         ctx.lineTo(sx, sy)
       }
       ctx.closePath()
-      ctx.fillStyle   = COLORS.lotFill
+      ctx.fillStyle   = palette.fill
       ctx.fill()
-      ctx.strokeStyle = COLORS.lotEdge
+      ctx.strokeStyle = palette.edge
       ctx.lineWidth   = 0.5
       ctx.stroke()
     }
   }
 
-  // ── Roads — casing then fill ─────────────────────────────────────────────
+  // ── Roads — casing then fill (highway > arterial > residential)
   for (const seg of world.segments) {
     const [ax, ay] = toScreen(seg.a.x, seg.a.y)
     const [bx, by] = toScreen(seg.b.x, seg.b.y)
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by)
     ctx.strokeStyle = '#00000070'
-    ctx.lineWidth   = seg.type === 'arterial' ? scale * 6.5 : scale * 3.8
+    ctx.lineWidth   = seg.type === 'highway'   ? scale * 9
+                    : seg.type === 'arterial'  ? scale * 6.5 : scale * 3.8
     ctx.lineCap     = 'round'
     ctx.stroke()
   }
@@ -161,10 +170,23 @@ export function renderWorld(
     const [ax, ay] = toScreen(seg.a.x, seg.a.y)
     const [bx, by] = toScreen(seg.b.x, seg.b.y)
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by)
-    ctx.strokeStyle = seg.type === 'arterial' ? COLORS.arterial : COLORS.residential
-    ctx.lineWidth   = seg.type === 'arterial' ? scale * 4.5 : scale * 2.2
+    ctx.strokeStyle = seg.type === 'highway'  ? COLORS.highway
+                    : seg.type === 'arterial' ? COLORS.arterial : COLORS.residential
+    ctx.lineWidth   = seg.type === 'highway'  ? scale * 6.5
+                    : seg.type === 'arterial' ? scale * 4.5  : scale * 2.2
     ctx.lineCap     = 'round'
     ctx.stroke()
+  }
+  // Centre line on highway
+  for (const seg of world.segments.filter(s => s.type === 'highway')) {
+    const [ax, ay] = toScreen(seg.a.x, seg.a.y)
+    const [bx, by] = toScreen(seg.b.x, seg.b.y)
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by)
+    ctx.strokeStyle = '#ffffff40'
+    ctx.lineWidth   = 1
+    ctx.setLineDash([scale * 4, scale * 3])
+    ctx.stroke()
+    ctx.setLineDash([])
   }
 
   // ── Bridges — drawn on top of roads and rivers ───────────────────────────
@@ -172,7 +194,7 @@ export function renderWorld(
     const [ax, ay] = toScreen(bridge.a.x, bridge.a.y)
     const [bx, by] = toScreen(bridge.b.x, bridge.b.y)
     const isArterial = bridge.type === 'arterial'
-    const halfW = scale * (isArterial ? 3.5 : 2.2)
+    const halfW = scale * (bridge.type === 'highway' ? 5 : isArterial ? 3.5 : 2.2)
 
     // Direction perpendicular to bridge for deck width
     const len = Math.sqrt((bx-ax)**2 + (by-ay)**2) || 1
@@ -194,8 +216,9 @@ export function renderWorld(
 
     // Road surface on bridge
     ctx.beginPath(); ctx.moveTo(ax-ex, ay-ey); ctx.lineTo(bx+ex, by+ey)
-    ctx.strokeStyle = isArterial ? COLORS.arterial : COLORS.residential
-    ctx.lineWidth   = isArterial ? scale * 4.5 : scale * 2.2
+    ctx.strokeStyle = bridge.type === 'highway'  ? COLORS.highway
+                    : isArterial                 ? COLORS.arterial : COLORS.residential
+    ctx.lineWidth   = bridge.type === 'highway' ? scale * 6.5 : isArterial ? scale * 4.5 : scale * 2.2
     ctx.lineCap     = 'butt'
     ctx.stroke()
 
@@ -217,11 +240,21 @@ export function renderWorld(
   ctx.fillStyle = '#ff6b6b'; ctx.fill()
 
   // ── Stats overlay ───────────────────────────────────────────────────────────
+  const hw   = world.segments.filter(s=>s.type==='highway').length
+  const art  = world.segments.filter(s=>s.type==='arterial').length
+  const res  = world.segments.filter(s=>s.type==='residential').length
+  const lRes = world.lots.filter(l=>l.type==='residential').length
+  const lCom = world.lots.filter(l=>l.type==='commercial').length
+  const lCiv = world.lots.filter(l=>l.type==='civic').length
+  const lGrn = world.lots.filter(l=>l.type==='green').length
   ctx.fillStyle = 'rgba(0,0,0,0.6)'
-  ctx.fillRect(8, 8, 200, 60)
+  ctx.fillRect(8, 8, 210, 100)
   ctx.fillStyle = '#ffffff99'
   ctx.font = '11px monospace'
-  ctx.fillText(`segments: ${world.segments.length}`, 16, 26)
-  ctx.fillText(`arterial: ${world.segments.filter(s=>s.type==='arterial').length}`, 16, 40)
-  ctx.fillText(`lots: ${world.lots.length}`, 16, 54)
+  ctx.fillText(`roads: ${world.segments.length}  (hwy:${hw} art:${art} res:${res})`, 16, 26)
+  ctx.fillText(`lots:  ${world.lots.length}`, 16, 40)
+  ctx.fillStyle = COLORS.residential; ctx.fillText(`  residential: ${lRes}`, 16, 54)
+  ctx.fillStyle = COLORS.highway;     ctx.fillText(`  commercial:  ${lCom}`, 16, 68)
+  ctx.fillStyle = COLORS.arterial;    ctx.fillText(`  civic:       ${lCiv}`, 16, 82)
+  ctx.fillStyle = '#2a7a2a';          ctx.fillText(`  green:       ${lGrn}`, 16, 96)
 }

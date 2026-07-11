@@ -264,13 +264,22 @@ export default function App() {
           borderRadius: 8, padding: '10px 14px', backdropFilter: 'blur(8px)',
         }}>
           {[
-            { color: '#f5c842', label: 'Arterial road' },
-            { color: '#8ab4e8', label: 'Residential road' },
-            { color: '#3a6a3a', label: 'Building lot' },
-            { color: '#1a2d4a', label: 'Water' },
+            { color: '#ff9944', label: 'Highway',          shape: 'road' },
+            { color: '#f5c842', label: 'Arterial road',    shape: 'road' },
+            { color: '#8ab4e8', label: 'Residential road', shape: 'road' },
+            { color: '#3a6a3a', label: 'Residential lot',  shape: 'lot' },
+            { color: '#7a4a18', label: 'Commercial lot',   shape: 'lot' },
+            { color: '#2a4a7a', label: 'Civic lot',        shape: 'lot' },
+            { color: '#2a7a2a', label: 'Green space',      shape: 'lot' },
+            { color: '#1a2d4a', label: 'Water',            shape: 'road' },
           ].map(l => (
             <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, fontSize: 11 }}>
-              <div style={{ width: 20, height: 3, background: l.color, borderRadius: 2 }} />
+              <div style={{
+                width: l.shape === 'lot' ? 10 : 20,
+                height: l.shape === 'lot' ? 10 : 3,
+                background: l.color,
+                borderRadius: l.shape === 'lot' ? 2 : 2,
+              }} />
               <span style={{ color: '#8899bb' }}>{l.label}</span>
             </div>
           ))}
