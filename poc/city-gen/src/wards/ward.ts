@@ -1,0 +1,161 @@
+// SPDX-License-Identifier: GPL-3.0
+// Port of com.watabou.towngenerator.wards.Ward
+// This file contains the base class + static helpers.
+// Concrete subclasses live in src/wards/*.ts (Phase 3).
+
+import { Pt } from '../geom/pt'
+import { type Polygon, polyForEdge, polyShrinkEq, polyBufferEq, polySquare, polyIsConvex, polyCenter } from '../geom/polygon'
+import { cross } from '../geom/geomUtils'
+import { bisect } from '../model/cutter'
+import type { Patch } from '../model/patch'
+import type { Model } from '../model/model'
+
+export const MAIN_STREET    = 2.0
+export const REGULAR_STREET = 1.0
+export const ALLEY          = 0.6
+
+export abstract class Ward {
+  model:    Model
+  patch:    Patch
+  geometry: Polygon[] = []
+  name:     string    = 'Ward'
+
+  constructor(model: Model, patch: Patch) {
+    this.model = model
+    this.patch = patch
+  }
+
+  createGeometry(): void { this.geometry = [] }
+
+  getLabel(): string | null { return null }
+
+  /**
+   * Returns the city block polygon — the patch inset by street width on each edge.
+   * Edges on arteries or the wall get a larger inset (MAIN_STREET/2),
+   * inner edges get REGULAR_STREET/2, countryside edges get ALLEY/2.
+   */
+  getCityBlock(): Polygon {
+    const insetDist: number[] = []
+    const innerPatch = this.model.wall == null || this.patch.withinWalls
+
+    polyForEdge(this.patch.shape, (v0, v1) => {
+      if (this.model.wall != null && this.model.wall.bordersBy(this.patch, v0, v1)) {
+        insetDist.push(MAIN_STREET / 2)
+      } else {
+        let onStreet = innerPatch && (
+          this.model.plaza != null &&
+          this.model.plaza.shape.indexOf(v1) !== -1 &&
+          this.model.plaza.shape.indexOf(v0) !== -1
+        )
+        if (!onStreet) {
+          for (const street of this.model.arteries) {
+            if (street.indexOf(v0) !== -1 && street.indexOf(v1) !== -1) {
+              onStreet = true; break
+            }
+          }
+        }
+        insetDist.push((onStreet ? MAIN_STREET : (innerPatch ? REGULAR_STREET : ALLEY)) / 2)
+      }
+    })
+
+    try {
+      return polyIsConvex(this.patch.shape)
+        ? polyShrinkEq(this.patch.shape, insetDist[0])
+        : polyBufferEq(this.patch.shape, insetDist[0])
+    } catch {
+      return [...this.patch.shape]
+    }
+  }
+
+  // ── Static building subdivision ──────────────────────────────────────────────
+
+  /**
+   * Recursively subdivide a city block into individual building lots.
+   * Exact port of Ward.createAlleys — see Ward.hx.
+   */
+  static createAlleys(
+    p:          Polygon,
+    minSq:      number,
+    gridChaos:  number,
+    sizeChaos:  number,
+    emptyProb = 0.04,
+    split      = true,
+    _depth     = 0,
+  ): Polygon[] {
+    if (p.length < 3 || _depth > 24) return p.length >= 3 ? [p] : []
+
+    // Find the longest edge
+    let v: Pt = p[0]
+    let longest = -1
+    polyForEdge(p, (p0, p1) => {
+      const len = Pt.distance(p0, p1)
+      if (len > longest) { longest = len; v = p0 }
+    })
+
+    const spread = 0.8 * gridChaos
+    const ratio  = (1 - spread) / 2 + Math.random() * spread
+    const angleSpread = Math.PI / 6 * gridChaos * (Math.abs(polySquare(p)) < minSq * 4 ? 0 : 1)
+    const angle  = (Math.random() - 0.5) * angleSpread
+
+    const halves = bisect(p, v, ratio, angle, split ? ALLEY : 0)
+
+    const buildings: Polygon[] = []
+    for (const half of halves) {
+      const sq = Math.abs(polySquare(half))
+      if (sq < minSq * Math.pow(2, 4 * sizeChaos * (Math.random() - 0.5))) {
+        if (Math.random() >= emptyProb) buildings.push(half)
+      } else {
+        const subSplit = sq > minSq / (Math.random() * Math.random())
+        buildings.push(...Ward.createAlleys(half, minSq, gridChaos, sizeChaos, emptyProb, subSplit, _depth + 1))
+      }
+    }
+    return buildings
+  }
+
+  /**
+   * Recursively create orthogonal buildings from a block.
+   * Port of Ward.createOrthoBuilding — used by Castle/Cathedral.
+   */
+  static createOrthoBuilding(poly: Polygon, minBlockSq: number, fill: number): Polygon[] {
+    function findLongestEdge(pp: Polygon): Pt {
+      let v = pp[0], maxLen = -1
+      polyForEdge(pp, (p0, _) => {
+        const len = Pt.distance(p0, polyCenter(pp))
+        if (len > maxLen) { maxLen = len; v = p0 }
+      })
+      return v
+    }
+
+    function slice(pp: Polygon, c1: Pt, c2: Pt): Polygon[] {
+      const v0 = findLongestEdge(pp)
+      const v1 = pp[(pp.indexOf(v0) + 1) % pp.length]
+      const ev = v1.subtract(v0)
+      const ratio = 0.4 + Math.random() * 0.2
+      const p1 = new Pt(v0.x + ev.x * ratio, v0.y + ev.y * ratio)
+      const c  = Math.abs(cross(ev.x, ev.y, c1.x, c1.y)) < Math.abs(cross(ev.x, ev.y, c2.x, c2.y)) ? c1 : c2
+      const halves = (pp as Polygon & { cut: (a: Pt, b: Pt) => Polygon[] }).cut
+        ? (pp as unknown as { cut: (a: Pt, b: Pt) => Polygon[] }).cut(p1, p1.add(c))
+        : [pp]
+
+      const result: Polygon[] = []
+      for (const h of halves) {
+        const sq = Math.abs(polySquare(h))
+        if (sq < minBlockSq * Math.pow(2, (Math.random() * 2 - 1))) {
+          if (Math.random() < fill) result.push(h)
+        } else {
+          result.push(...slice(h, c1, c2))
+        }
+      }
+      return result
+    }
+
+    if (Math.abs(polySquare(poly)) < minBlockSq) return [poly]
+    const v0 = findLongestEdge(poly)
+    const c1 = poly[(poly.indexOf(v0) + 1) % poly.length].subtract(v0)
+    const c2 = c1.rotate90()
+    while (true) {
+      const blocks = slice(poly, c1, c2)
+      if (blocks.length > 0) return blocks
+    }
+  }
+}
