@@ -1,4 +1,5 @@
 import type { GeneratedWorld } from '../gen/types'
+import type { TestResult }    from '../gen/tests'
 
 // Colour palette — dark map aesthetic
 const COLORS = {
@@ -25,6 +26,7 @@ interface RenderOptions {
   zoom:        number
   panX:        number
   panY:        number
+  tests?:      TestResult[]
 }
 
 export function renderWorld(
@@ -234,10 +236,31 @@ export function renderWorld(
     }
   }
 
-  // ── Centre dot ──────────────────────────────────────────────────────────────
-  const [cx, cy] = toScreen(0, 0)
-  ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI*2)
-  ctx.fillStyle = '#ff6b6b'; ctx.fill()
+  // ── Centre dot (origin)
+  const [cx0, cy0] = toScreen(0, 0)
+  ctx.beginPath(); ctx.arc(cx0, cy0, 3, 0, Math.PI*2)
+  ctx.fillStyle = '#ff6b6b40'; ctx.fill()
+
+  // ── Town centre marker — star/cross at the hub
+  if (world.townCenter) {
+    const [tcx, tcy] = toScreen(world.townCenter.x, world.townCenter.y)
+    const r = scale * 4
+    ctx.save()
+    ctx.translate(tcx, tcy)
+    ctx.beginPath()
+    for (let i = 0; i < 8; i++) {
+      const a   = (i / 8) * Math.PI * 2 - Math.PI / 8
+      const len = i % 2 === 0 ? r : r * 0.45
+      i === 0 ? ctx.moveTo(Math.cos(a)*len, Math.sin(a)*len) : ctx.lineTo(Math.cos(a)*len, Math.sin(a)*len)
+    }
+    ctx.closePath()
+    ctx.fillStyle   = '#ffffffcc'
+    ctx.fill()
+    ctx.strokeStyle = '#ff9944'
+    ctx.lineWidth   = 1
+    ctx.stroke()
+    ctx.restore()
+  }
 
   // ── Stats overlay ───────────────────────────────────────────────────────────
   const hw   = world.segments.filter(s=>s.type==='highway').length
@@ -247,14 +270,35 @@ export function renderWorld(
   const lCom = world.lots.filter(l=>l.type==='commercial').length
   const lCiv = world.lots.filter(l=>l.type==='civic').length
   const lGrn = world.lots.filter(l=>l.type==='green').length
-  ctx.fillStyle = 'rgba(0,0,0,0.6)'
-  ctx.fillRect(8, 8, 210, 100)
+
+  const tests    = opts.tests ?? []
+  const boxH     = tests.length > 0 ? 160 : 104
+  ctx.fillStyle  = 'rgba(0,0,0,0.65)'
+  ctx.fillRect(8, 8, 220, boxH)
+  ctx.font       = '11px monospace'
+
   ctx.fillStyle = '#ffffff99'
-  ctx.font = '11px monospace'
   ctx.fillText(`roads: ${world.segments.length}  (hwy:${hw} art:${art} res:${res})`, 16, 26)
   ctx.fillText(`lots:  ${world.lots.length}`, 16, 40)
   ctx.fillStyle = COLORS.residential; ctx.fillText(`  residential: ${lRes}`, 16, 54)
   ctx.fillStyle = COLORS.highway;     ctx.fillText(`  commercial:  ${lCom}`, 16, 68)
   ctx.fillStyle = COLORS.arterial;    ctx.fillText(`  civic:       ${lCiv}`, 16, 82)
   ctx.fillStyle = '#2a7a2a';          ctx.fillText(`  green:       ${lGrn}`, 16, 96)
+
+  if (tests.length > 0) {
+    ctx.fillStyle = '#ffffff44'
+    ctx.fillRect(16, 108, 196, 1)   // separator
+    ctx.fillStyle = '#ffffff55'
+    ctx.fillText('TESTS', 16, 122)
+    tests.forEach((t, i) => {
+      const y = 136 + i * 12
+      // coloured dot
+      ctx.fillStyle = t.passed ? '#44cc44' : '#cc4444'
+      ctx.fillRect(16, y - 7, 7, 7)
+      // label + value
+      ctx.fillStyle = t.passed ? '#88ee88' : '#ee8888'
+      const label = t.name.padEnd(14)
+      ctx.fillText(`${label} ${t.value}${t.unit}`, 27, y)
+    })
+  }
 }

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, useCallback, useTransition } from 'react'
 import type { GenParams, GeneratedWorld } from './gen/types'
-import { generateWorld } from './gen/generator'
-import { renderWorld } from './ui/renderer'
+import { generateWorld }  from './gen/generator'
+import { runTests }       from './gen/tests'
+import type { TestResult } from './gen/tests'
+import { renderWorld }   from './ui/renderer'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface ViewState {
@@ -48,6 +50,7 @@ export default function App() {
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const [params, setParams]   = useState<GenParams>(DEFAULT_PARAMS)
   const [world,  setWorld]    = useState<GeneratedWorld | null>(null)
+  const [tests,  setTests]    = useState<TestResult[]>([])
   const [view,   setView]     = useState<ViewState>({ zoom: 1, panX: 0, panY: 0 })
   const [showWater,   setShowWater]   = useState(true)
   const [showLots,    setShowLots]    = useState(true)
@@ -63,6 +66,7 @@ export default function App() {
     startTransition(() => {
       const w = generateWorld(params)
       setWorld(w)
+      setTests(runTests(w))
     })
   }, [params])
 
@@ -89,8 +93,9 @@ export default function App() {
     renderWorld(canvas, world, {
       showWater, showLots, showGrid, showCostMap,
       zoom: view.zoom, panX: view.panX, panY: view.panY,
+      tests,
     })
-  }, [world, view, showWater, showLots, showGrid, showCostMap])
+  }, [world, view, showWater, showLots, showGrid, showCostMap, tests])
 
   // ── Mouse pan ─────────────────────────────────────────────────────────────
   const onMouseDown = (e: React.MouseEvent) => {

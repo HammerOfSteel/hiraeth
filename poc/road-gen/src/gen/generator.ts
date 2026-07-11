@@ -337,6 +337,122 @@ function generateRoadLots(
   return lots
 }
 
+// ─── Town Core ────────────────────────────────────────────────────────────────
+
+/**
+ * Find the point on the highway closest to the map centre.
+ * This becomes the "hub" — the town centre seed all arterials converge on.
+ */
+function findTownCenter(hwSegs: Segment[]): Vec2 {
+  let best: Vec2 = { x: 0, y: 0 }
+  let bestDist   = Infinity
+  for (const seg of hwSegs) {
+    for (let t = 0; t <= 1; t += 0.05) {
+      const pt = v2.lerp(seg.a, seg.b, t)
+      const d  = Math.sqrt(pt.x*pt.x + pt.y*pt.y)
+      if (d < bestDist) { bestDist = d; best = { ...pt } }
+    }
+  }
+  return best
+}
+
+/**
+ * Generate a regular grid of "collector" streets around the town centre.
+ * This creates the dense block pattern — Gemini's "Phase B: The Subdivider."
+ */
+function generateCoreGrid(
+  center:  Vec2,
+  spacing: number,
+  n:       number,
+  costMap: Float32Array,
+  ms:      number,
+): Segment[] {
+  const segs    = [] as Segment[]
+  const halfMap = ms / 2 - 6
+
+  for (let r = -n; r <= n; r++) {
+    const y = center.y + r * spacing
+    if (Math.abs(y) > halfMap) continue
+    for (let c = -n; c < n; c++) {
+      const a: Vec2 = { x: center.x + c * spacing, y }
+      const b: Vec2 = { x: center.x + (c+1) * spacing, y }
+      if (Math.abs(a.x) > halfMap || Math.abs(b.x) > halfMap) continue
+      if (costAt(a, costMap, ms) > 50 || costAt(b, costMap, ms) > 50) continue
+      segs.push({ a, b, type: 'arterial' })
+    }
+  }
+
+  for (let c = -n; c <= n; c++) {
+    const x = center.x + c * spacing
+    if (Math.abs(x) > halfMap) continue
+    for (let r = -n; r < n; r++) {
+      const a: Vec2 = { x, y: center.y + r * spacing }
+      const b: Vec2 = { x, y: center.y + (r+1) * spacing }
+      if (Math.abs(a.y) > halfMap || Math.abs(b.y) > halfMap) continue
+      if (costAt(a, costMap, ms) > 50 || costAt(b, costMap, ms) > 50) continue
+      segs.push({ a, b, type: 'arterial' })
+    }
+  }
+
+  return segs
+}
+
+/**
+ * Fill each grid block with a 2×2 sub-grid of lots.
+ * This is Gemini's "Phase B" block subdivision — houses live INSIDE road loops,
+ * not just scattered along road edges.
+ */
+function coreBlockLots(
+  center:   Vec2,
+  spacing:  number,
+  n:        number,
+  lotShrink: number,
+  costMap:  Float32Array,
+  ms:       number,
+): Lot[] {
+  const lots    = [] as Lot[]
+  const halfMap = ms / 2 - 4
+  // Road edge is at roadHalfWidth (5) + 0.5 from grid line → use 5.5 margin
+  const inset   = 5.5
+  const inner   = spacing - 2 * inset      // usable block interior
+  if (inner < 6) return lots               // grid too tight to fit lots
+  const LOTS_PER = 2
+  const lotW  = inner / LOTS_PER
+
+  for (let br = -n; br < n; br++) {
+    for (let bc = -n; bc < n; bc++) {
+      const x0 = center.x + bc * spacing + inset
+      const y0 = center.y + br * spacing + inset
+      const bCX = x0 + inner * 0.5, bCY = y0 + inner * 0.5
+      if (costAt({ x: bCX, y: bCY }, costMap, ms) > 50) continue
+
+      for (let lr = 0; lr < LOTS_PER; lr++) {
+        for (let lc = 0; lc < LOTS_PER; lc++) {
+          const lx0 = x0 + lc * lotW, ly0 = y0 + lr * lotW
+          const lx1 = lx0 + lotW,    ly1 = ly0 + lotW
+          const cx = (lx0+lx1) / 2,  cy = (ly0+ly1) / 2
+          if (Math.abs(cx) > halfMap || Math.abs(cy) > halfMap) continue
+          if (costAt({ x: cx, y: cy }, costMap, ms) > 20) continue
+
+          const m = lotW * Math.max(0.02, lotShrink * 0.6)
+          lots.push({
+            polygon: [
+              { x: lx0+m, y: ly0+m },
+              { x: lx1-m, y: ly0+m },
+              { x: lx1-m, y: ly1-m },
+              { x: lx0+m, y: ly1-m },
+            ],
+            blockId: (br + n) * (2*n) + (bc + n),
+            type:    'residential',
+          })
+        }
+      }
+    }
+  }
+
+  return lots
+}
+
 // ─── Lot type classification via influence ────────────────────────────────────
 function classifyLot(
   c: Vec2,
@@ -421,35 +537,48 @@ export function generateWorld(params: GenParams): GeneratedWorld {
     segments.push(...polylineToSegments(hwPath, 'highway'))
   }
 
-  // 4. Spine roads through the centre
+  // 4. Town centre — the "hub" where roads will converge.
+  //    Placed at the point on the highway closest to the map origin.
+  const townCenter = findTownCenter(segments.filter(s => s.type === 'highway'))
+
+  // 4b. Core grid — regular block streets around the town centre.
+  //     Creates the dense "urban core" block pattern.
+  //     gridN scales with map size so larger maps get a proportionally bigger town.
+  const gridSpacing = params.majorSpacing * 1.15
+  const gridN       = Math.max(2, Math.round(ms / 110))
+  segments.push(...generateCoreGrid(townCenter, gridSpacing, gridN, costMap, ms))
+
+  // 5. Spine roads — two roads that converge on the town centre, creating the
+  //    main "high street" crossroads typical of British market towns.
   const spineAngle = field.sample(0, 0)
   for (const dir of [spineAngle, spineAngle + Math.PI * 0.5]) {
     const from: Vec2 = {
       x: Math.cos(dir + Math.PI) * half * 0.82,
       y: Math.sin(dir + Math.PI) * half * 0.82,
     }
-    const pts = traceRoad(from, dir, params.majorSpacing * 0.45, 60, costMap, ms, field, segments, rng, 0.06, 'arterial')
+    // Point toward the town centre, not the geometric origin — creates converging high streets
+    const toward = Math.atan2(townCenter.y - from.y, townCenter.x - from.x) + (rng()-0.5) * 0.18
+    const pts = traceRoad(from, toward, params.majorSpacing * 0.45, 60, costMap, ms, field, segments, rng, 0.06, 'arterial')
     segments.push(...polylineToSegments(pts, 'arterial'))
   }
 
-  // 5. Arterial roads — MIXED strategy for coverage + connectivity:
-  //    • 60% branch FROM the highway (fishbone, always connected)
-  //    • 40% radiate inward from the perimeter (coverage, DSU will repair any gaps)
-  //    Scales with map size so larger maps get denser road networks.
+  // 6. Arterial roads — MIXED strategy:
+  //    60% from highway → aim toward town centre (convergent, guaranteed connected)
+  //    40% from perimeter → aim toward town centre (coverage, DSU repairs any gap)
+  //    All arterials CONVERGE on the town centre — Gemini's "Hub-First" paradigm.
   {
     const hwSegs = segments.filter(s => s.type === 'highway')
-    const scale  = Math.max(1, ms / 300)                   // linear scale with map size
+    const scale  = Math.max(1, ms / 300)
     const total  = Math.round(params.arterialCount * scale)
-    const hwCount  = Math.ceil(total * 0.6)               // 60% from highway
-    const rimCount = total - hwCount                       // 40% from perimeter
+    const hwCount  = Math.ceil(total * 0.6)
+    const rimCount = total - hwCount
 
     for (let i = 0; i < hwCount; i++) {
       if (hwSegs.length === 0) break
-      const hwSeg = hwSegs[Math.floor(rng() * hwSegs.length)]
+      const hwSeg  = hwSegs[Math.floor(rng() * hwSegs.length)]
       const origin = v2.lerp(hwSeg.a, hwSeg.b, rng())
-      const hwAngle = Math.atan2(hwSeg.b.y - hwSeg.a.y, hwSeg.b.x - hwSeg.a.x)
-      const side    = i % 2 === 0 ? 1 : -1
-      const toward  = hwAngle + Math.PI * 0.5 * side + (rng()-0.5) * 0.65
+      // Aim toward town centre with organic noise
+      const toward = Math.atan2(townCenter.y - origin.y, townCenter.x - origin.x) + (rng()-0.5) * 0.7
       const pts = traceRoad(
         origin, toward,
         params.majorSpacing * 0.42,
@@ -463,7 +592,8 @@ export function generateWorld(params: GenParams): GeneratedWorld {
       const angle  = (i / rimCount) * Math.PI * 2
       const dist   = half * (0.65 + rng() * 0.25)
       const start: Vec2 = { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist }
-      const toward = Math.atan2(-start.y, -start.x) + (rng()-0.5) * 0.5
+      // Aim toward town centre (not just generic centre)
+      const toward = Math.atan2(townCenter.y - start.y, townCenter.x - start.x) + (rng()-0.5) * 0.5
       const pts = traceRoad(
         start, toward,
         params.majorSpacing * 0.42,
@@ -474,7 +604,7 @@ export function generateWorld(params: GenParams): GeneratedWorld {
     }
   }
 
-  // 6. Residential roads — branch perpendicular off arterials.
+  // 7. Residential roads — branch perpendicular off arterials.
   //    Count scales with map area so bigger maps stay dense.
   const artSegs  = segments.filter(s => s.type === 'arterial')
   const resScale = Math.sqrt(ms / 250)   // √(area ratio) — avoids explosion on huge maps
@@ -502,12 +632,12 @@ export function generateWorld(params: GenParams): GeneratedWorld {
     segments.push(...polylineToSegments(pts, 'residential'))
   }
 
-  // 7. Connectivity repair — Union-Find post-process.
+  // 8. Connectivity repair (unchanged).
   //    Any component not reachable from the highway gets a short connector road.
   //    Safety net for spine roads or any edge-case orphans.
   segments.push(...ensureConnectivity(segments, ms, rng))
 
-  // 8. Lots alongside every road segment — with occupancy-grid overlap prevention.
+  // 9. Lots alongside every road segment — with occupancy-grid overlap prevention.
   //    CELL = half the residential road half-width so lots on OPPOSITE sides of the
   //    same road never collide, while genuinely overlapping lots from two parallel
   //    roads are still rejected.  Only the centroid cell + direct neighbours (not
@@ -521,6 +651,20 @@ export function generateWorld(params: GenParams): GeneratedWorld {
     y: poly.reduce((s,p)=>s+p.y,0)/poly.length,
   })
 
+  // 9a. Core block lots (Gemini Phase B: fill blocks between grid roads)
+  //     Added first so they claim the occupancy grid before suburban lots.
+  for (const lot of coreBlockLots(townCenter, gridSpacing, gridN, params.lotShrink, costMap, ms)) {
+    const c    = centroid(lot.polygon)
+    const keys = [lotKey(c), lotKey({x:c.x+CELL,y:c.y}), lotKey({x:c.x-CELL,y:c.y}), lotKey({x:c.x,y:c.y+CELL}), lotKey({x:c.x,y:c.y-CELL})]
+    if (keys.some(k => occupied.has(k))) continue
+    lots.push(lot)
+    const xs = lot.polygon.map(p=>p.x), ys = lot.polygon.map(p=>p.y)
+    for (let x = Math.min(...xs); x <= Math.max(...xs)+CELL; x += CELL)
+      for (let y = Math.min(...ys); y <= Math.max(...ys)+CELL; y += CELL)
+        occupied.add(lotKey({x, y}))
+  }
+
+  // 9b. Alongside-road lots for suburban / organic roads
   for (const seg of segments) {
     for (const lot of generateRoadLots(seg, costMap, ms, params.lotShrink)) {
       const c = centroid(lot.polygon)
@@ -538,13 +682,33 @@ export function generateWorld(params: GenParams): GeneratedWorld {
     }
   }
 
-  // 8b. Classify each lot by influence map (commercial/civic/green/residential)
+  // 9c. Classify each lot by influence (commercial / civic / green / residential)
   for (const lot of lots) {
     const c = centroid(lot.polygon)
     lot.type = classifyLot(c, segments, ms, rng)
   }
 
-  // 9. Detect bridge crossings (road segments that pass through water)
+  // 9d. Guaranteed green space (Gemini Phase C: Land-Use Pass).
+  //     Ensures at least 10% of lots are green space regardless of road layout.
+  //     Picks residential lots furthest from the town centre to convert.
+  {
+    const greenTarget = Math.max(2, Math.floor(lots.length * 0.10))
+    const currentGreen = lots.filter(l => l.type === 'green').length
+    const toConvert    = greenTarget - currentGreen
+    if (toConvert > 0) {
+      const candidates = lots
+        .filter(l => l.type === 'residential')
+        .sort((a, b) => {
+          const ca = centroid(a.polygon), cb = centroid(b.polygon)
+          return v2.dist(cb, townCenter) - v2.dist(ca, townCenter)  // furthest first
+        })
+      for (let i = 0; i < toConvert && i < candidates.length; i++) {
+        candidates[i].type = 'green'
+      }
+    }
+  }
+
+  // 10. Detect bridge crossings (road segments that pass through water)
   const bridges: Bridge[] = []
   const BRIDGE_STEPS = 20
   for (const seg of segments) {
@@ -567,6 +731,6 @@ export function generateWorld(params: GenParams): GeneratedWorld {
     if (inWater && bridgeStart) bridges.push({ a: bridgeStart, b: seg.b, type: seg.type })
   }
 
-  return { segments, intersections: [], lots, rivers, bridges, costMap, mapSize: ms }
+  return { segments, intersections: [], lots, rivers, bridges, costMap, mapSize: ms, townCenter }
 }
 

@@ -41,6 +41,7 @@ export interface GeneratedWorld {
   bridges: Bridge[]
   costMap: Float32Array
   mapSize: number
+  townCenter: Vec2   // "hub" — where roads converge, dense core forms around it
 }
 
 export interface GenParams {
