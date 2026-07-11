@@ -69,6 +69,11 @@ export class Topology {
     return this._graph.aStar(nFrom, nTo, exclude) ?? null
   }
 
+  /** Iterate all (node, point) pairs in the topology. */
+  allPoints(): IterableIterator<[Node, Pt]> {
+    return this._pt2node.entries() as IterableIterator<[Node, Pt]>
+  }
+
   /** Smooth a street path in-place (keep first + last points fixed). */
   static smooth(street: Street): void {
     const smoothed = polySmoothVertexEq(street, 3)

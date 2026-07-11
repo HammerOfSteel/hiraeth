@@ -2,7 +2,7 @@
 // Port of com.watabou.towngenerator.wards.Market
 import { Ward } from './ward'
 import { Pt } from '../geom/pt'
-import { type Polygon, polyForEdge, polyCentroid, polyRect, polyRegular } from '../geom/polygon'
+import { type Polygon, polyForEdge, polyCentroid, polyRect, polyRegular, polySquare, polyDistance, polyBorders } from '../geom/polygon'
 import type { Model } from '../model/model'
 import type { Patch } from '../model/patch'
 
@@ -59,4 +59,15 @@ export class Market extends Ward {
   }
 
   override getLabel() { return 'Market' }
+
+  static rateLocation(model: Model, patch: Patch): number {
+    // One market should not touch another
+    for (const p of model.inner)
+      if (p.ward instanceof Market && polyBorders(p.shape, patch.shape))
+        return Infinity
+    // Market shouldn't be much larger than the plaza
+    return model.plaza != null
+      ? Math.abs(polySquare(patch.shape)) / Math.abs(polySquare(model.plaza.shape))
+      : polyDistance(patch.shape, model.center)
+  }
 }

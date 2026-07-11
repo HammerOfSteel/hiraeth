@@ -2,6 +2,7 @@
 // Port of com.watabou.towngenerator.wards.Cathedral
 import { Ward } from './ward'
 import { ring } from '../model/cutter'
+import { polySquare, polyDistance, polyCenter, polyBorders } from '../geom/polygon'
 import type { Model } from '../model/model'
 import type { Patch } from '../model/patch'
 
@@ -21,4 +22,11 @@ export class Cathedral extends Ward {
   }
 
   override getLabel() { return 'Cathedral' }
+
+  static rateLocation(model: Model, patch: Patch): number {
+    const plazaCenter = model.plaza != null ? polyCenter(model.plaza.shape) : model.center
+    if (model.plaza != null && polyBorders(patch.shape, model.plaza.shape))
+      return -1 / Math.abs(polySquare(patch.shape))
+    return polyDistance(patch.shape, plazaCenter) * Math.abs(polySquare(patch.shape))
+  }
 }

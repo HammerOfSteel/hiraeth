@@ -7,7 +7,7 @@ import { Voronoi } from '../geom/voronoi'
 import { Patch } from './patch'
 import { CurtainWall } from './curtainWall'
 import { Topology, type Street } from './topology'
-import { createWard } from '../wards/index'
+import { createWard, getRateLocation } from '../wards/index'
 
 // ─── Seeded PRNG ─────────────────────────────────────────────────────────────
 
@@ -207,7 +207,7 @@ export class Model {
       const castle = createWard('Castle', this, this.citadel)
       this.citadel.ward = castle
 
-      if (polyCompactness(this.citadel.shape) < 0.4) {
+      if (polyCompactness(this.citadel.shape) < 0.75) {
         // Bad citadel shape — skip citadel
         this.citadel = null
       } else {
@@ -240,14 +240,14 @@ export class Model {
         this.streets.push(street)
 
         if (this.border.gates.includes(gate)) {
-          // Route road from outside to gate
-          const dir   = gate.norm(1000)
+          const dir = gate.norm(1000)
+          // Find road start: scan ALL topology nodes (inner+outer), pick closest to dir
           let start: Pt | null = null
           let minDist = Infinity
-          // Find outermost topology point
-          for (const node of this._topology.outer) {
-            const d = Pt.distance(node.pt, dir)
-            if (d < minDist) { minDist = d; start = node.pt }
+          for (const [node, pt] of this._topology.allPoints()) {
+            void node
+            const d = Pt.distance(pt, dir)
+            if (d < minDist) { minDist = d; start = pt }
           }
           if (start != null) {
             const road = this._topology.buildPath(start, gate, this._topology.inner)
@@ -301,12 +301,14 @@ export class Model {
       unassigned.splice(unassigned.indexOf(this.plaza), 1)
     }
 
-    // Assign gate wards
+    // Assign gate wards to patches near border gates
+    const gateProb = 1 / Math.max(1, this.params.nPatches - 5)
     for (const gate of this.border.gates) {
       for (const patch of this.patchByVertex(gate)) {
-        if (patch.withinCity && patch.ward == null && rng.bool(this.wall == null ? 0.2 : 0.5)) {
+        if (patch.withinCity && patch.ward == null && !rng.bool(gateProb)) {
           patch.ward = createWard('Gate', this, patch)
-          unassigned.splice(unassigned.indexOf(patch), 1)
+          const idx = unassigned.indexOf(patch)
+          if (idx !== -1) unassigned.splice(idx, 1)
         }
       }
     }
@@ -320,9 +322,19 @@ export class Model {
     }
 
     while (unassigned.length > 0) {
-      const wardName  = wardQueue.length > 0 ? wardQueue.shift()! : 'Slum'
-      const bestPatch = unassigned.find(p => p.ward == null) ?? unassigned[0]
-      bestPatch.ward  = createWard(wardName, this, bestPatch)
+      const wardName   = wardQueue.length > 0 ? wardQueue.shift()! : 'Slum'
+      const rateLocFn  = getRateLocation(wardName)
+      let bestPatch: Patch
+      if (rateLocFn == null) {
+        // No rateLocation — pick a random unassigned patch
+        bestPatch = unassigned[rng.int(0, unassigned.length - 1)]
+      } else {
+        // Pick the patch with the lowest score
+        bestPatch = unassigned.reduce((best, p) =>
+          rateLocFn(this, p) < rateLocFn(this, best) ? p : best
+        )
+      }
+      bestPatch.ward = createWard(wardName, this, bestPatch)
       unassigned.splice(unassigned.indexOf(bestPatch), 1)
     }
 

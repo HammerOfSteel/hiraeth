@@ -23,6 +23,23 @@ export {
   GateWard, Park, Farm, Castle,
 }
 
+type RateFn = (model: Model, patch: Patch) => number
+
+const RATE_LOCATION: Record<string, RateFn> = {
+  Market:         Market.rateLocation,
+  Cathedral:      Cathedral.rateLocation,
+  Slum:           Slum.rateLocation,
+  Merchant:       MerchantWard.rateLocation,
+  Patriciate:     PatriciateWard.rateLocation,
+  Administration: AdministrationWard.rateLocation,
+  Military:       MilitaryWard.rateLocation,
+}
+
+/** Return the rateLocation scoring function for a ward by name, or null. */
+export function getRateLocation(name: string): RateFn | null {
+  return RATE_LOCATION[name] ?? null
+}
+
 /** Create a ward instance by name. Falls back to CraftsmenWard. */
 export function createWard(name: string, model: Model, patch: Patch): Ward {
   switch (name) {
