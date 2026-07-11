@@ -141,6 +141,69 @@ export function Road({ from, to }: { from: [number, number, number]; to: [number
   )
 }
 
+/**
+ * Road junction with zebra crossings on all four sides.
+ *
+ * Road heights (Road component):
+ *   tarmac top  = Y 0.045  (group 0.02 + mesh 0 + half 0.025)
+ *   pavement top = Y 0.080  (group 0.02 + mesh 0.03 + half 0.03)
+ *   pavement centre offset from road centreline = 4.2 units
+ *
+ * Junction group is placed at Y 0.085 — just above road pavement top.
+ */
+export function RoadJunction({ position }: { position: [number, number, number] }) {
+  const [jx, , jz] = position
+  const rw   = 7.2     // road / tarmac width
+  const pw   = 1.84    // pavement / crosswalk depth
+  const cwc  = 4.2     // crosswalk centre offset (Road component pavement position)
+  const n    = 7       // number of stripes per crosswalk
+  const step = rw / n  // spacing across road width
+  const sw   = step * 0.60  // stripe width
+
+  // Stripe offsets spread across the road width
+  const offs = Array.from({ length: n }, (_, i) => -rw / 2 + step * (i + 0.5))
+
+  // Each crosswalk: stripes are LONG in Z (across the road = pedestrian direction),
+  // SHORT in X, spaced evenly in X across the road width.
+  // rotY = π/2 rotates the E/W crosswalks so their stripes run across the connector road.
+  const Crosswalk = ({ lx, lz, rotY }: { lx: number; lz: number; rotY: number }) => (
+    <group position={[lx, 0.01, lz]} rotation={[0, rotY, 0]}>
+      {/* Dark tarmac base */}
+      <mesh receiveShadow>
+        <boxGeometry args={[rw, 0.01, pw]} />
+        <meshStandardMaterial color="#1e1e1e" roughness={0.98} />
+      </mesh>
+      {/* White stripes — short in X (sw), long in Z (pw * 0.88 = across road) */}
+      {offs.map((xOff, i) => (
+        <mesh key={i} receiveShadow position={[xOff, 0.007, 0]}>
+          <boxGeometry args={[sw, 0.012, pw * 0.88]} />
+          <meshStandardMaterial color="#e8e4d8" roughness={0.82} />
+        </mesh>
+      ))}
+    </group>
+  )
+
+  return (
+    <group position={[jx, 0.085, jz]}>
+      {/* Full pavement base — covers all four overlap corners */}
+      <mesh receiveShadow>
+        <boxGeometry args={[rw + pw * 2, 0.01, rw + pw * 2]} />
+        <meshStandardMaterial color="#8a8070" roughness={0.92} />
+      </mesh>
+      {/* Tarmac centre */}
+      <mesh receiveShadow position={[0, 0.007, 0]}>
+        <boxGeometry args={[rw, 0.012, rw]} />
+        <meshStandardMaterial color="#2a2a2a" roughness={0.98} />
+      </mesh>
+      {/* Zebra crossings on all four sides */}
+      <Crosswalk lx={0}    lz={-cwc} rotY={0}           />  {/* south */}
+      <Crosswalk lx={0}    lz={+cwc} rotY={0}           />  {/* north */}
+      <Crosswalk lx={-cwc} lz={0}    rotY={Math.PI / 2} />  {/* west  */}
+      <Crosswalk lx={+cwc} lz={0}    rotY={Math.PI / 2} />  {/* east  */}
+    </group>
+  )
+}
+
 /** Bench */
 export function Bench({ position = [0, 0, 0] as [number, number, number], rotation = 0 }) {
   return (
