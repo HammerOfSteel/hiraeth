@@ -7,7 +7,7 @@ import { Voronoi } from '../geom/voronoi'
 import { Patch } from './patch'
 import { CurtainWall } from './curtainWall'
 import { Topology, type Street } from './topology'
-import { Ward } from '../wards/ward'
+import { createWard } from '../wards/index'
 
 // ─── Seeded PRNG ─────────────────────────────────────────────────────────────
 
@@ -34,17 +34,6 @@ function makePrng(seed: number) {
 
 type Prng = ReturnType<typeof makePrng>
 
-// ─── Ward class table (filled in Phase 3) ────────────────────────────────────
-
-type WardFactory = (model: Model, patch: Patch, rng: Prng) => Ward
-
-const WARD_FACTORIES: Record<string, WardFactory> = {}
-
-/** Register a ward factory (called from each ward module). */
-export function registerWard(name: string, factory: WardFactory): void {
-  WARD_FACTORIES[name] = factory
-}
-
 // Ward rotation list matching Haxe Model.WARDS array
 const WARD_ROTATION: string[] = [
   'Craftsmen','Craftsmen','Merchant',
@@ -56,21 +45,6 @@ const WARD_ROTATION: string[] = [
   'Craftsmen','Craftsmen','Craftsmen','Military','Slum',
   'Craftsmen','Park','Patriciate','Market','Merchant',
 ]
-
-function makeWard(name: string, model: Model, patch: Patch, rng: Prng): Ward {
-  const factory = WARD_FACTORIES[name]
-  if (factory) return factory(model, patch, rng)
-  // Fallback: base ward with createAlleys defaults
-  const w = new (class extends Ward {
-    override createGeometry() {
-      const block = this.getCityBlock()
-      this.geometry = Ward.createAlleys(block, 15, 0.5, 0.6)
-    }
-    override getLabel() { return name }
-  })(model, patch)
-  w.name = name
-  return w
-}
 
 // ─── Model ────────────────────────────────────────────────────────────────────
 
@@ -97,7 +71,7 @@ export class Model {
   streets:    Street[] = []
   roads:      Street[] = []
 
-  private _rng: Prng
+  private _rng: Prng  // eslint-disable-line @typescript-eslint/no-unused-vars
   private _topology!: Topology
 
   private _plazaNeeded:   boolean
@@ -230,7 +204,7 @@ export class Model {
 
     if (this.citadel != null) {
       // Castle ward + inner wall
-      const castle = makeWard('Castle', this, this.citadel, this._rng)
+      const castle = createWard('Castle', this, this.citadel)
       this.citadel.ward = castle
 
       if (polyCompactness(this.citadel.shape) < 0.4) {
@@ -323,7 +297,7 @@ export class Model {
 
     // Assign plaza
     if (this.plaza != null) {
-      this.plaza.ward = makeWard('Market', this, this.plaza, rng)
+      this.plaza.ward = createWard('Market', this, this.plaza)
       unassigned.splice(unassigned.indexOf(this.plaza), 1)
     }
 
@@ -331,7 +305,7 @@ export class Model {
     for (const gate of this.border.gates) {
       for (const patch of this._patchByVertex(gate)) {
         if (patch.withinCity && patch.ward == null && rng.bool(this.wall == null ? 0.2 : 0.5)) {
-          patch.ward = makeWard('Gate', this, patch, rng)
+          patch.ward = createWard('Gate', this, patch)
           unassigned.splice(unassigned.indexOf(patch), 1)
         }
       }
@@ -348,7 +322,7 @@ export class Model {
     while (unassigned.length > 0) {
       const wardName  = wardQueue.length > 0 ? wardQueue.shift()! : 'Slum'
       const bestPatch = unassigned.find(p => p.ward == null) ?? unassigned[0]
-      bestPatch.ward  = makeWard(wardName, this, bestPatch, rng)
+      bestPatch.ward  = createWard(wardName, this, bestPatch)
       unassigned.splice(unassigned.indexOf(bestPatch), 1)
     }
 
@@ -357,11 +331,11 @@ export class Model {
       if (patch.ward != null) continue
       if (this.wall != null && this.border.gates.some(g => patch.shape.includes(g))) {
         patch.withinCity = true
-        patch.ward = makeWard('Gate', this, patch, rng)
+        patch.ward = createWard('Gate', this, patch)
       } else {
         patch.ward = (rng.bool(0.2) && polyCompactness(patch.shape) >= 0.7)
-          ? makeWard('Farm', this, patch, rng)
-          : makeWard('Ward', this, patch, rng)
+          ? createWard('Farm', this, patch)
+          : createWard('Ward', this, patch)
       }
     }
 
