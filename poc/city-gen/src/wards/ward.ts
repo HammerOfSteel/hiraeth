@@ -9,6 +9,7 @@ import { cross } from '../geom/geomUtils'
 import { bisect } from '../model/cutter'
 import type { Patch } from '../model/patch'
 import type { Model } from '../model/model'
+import type { Prng } from '../model/model'
 
 export const MAIN_STREET    = 2.0
 export const REGULAR_STREET = 1.0
@@ -19,10 +20,12 @@ export abstract class Ward {
   patch:    Patch
   geometry: Polygon[] = []
   name:     string    = 'Ward'
+  rng:      Prng
 
   constructor(model: Model, patch: Patch) {
     this.model = model
     this.patch = patch
+    this.rng   = model.rng
   }
 
   createGeometry(): void { this.geometry = [] }
@@ -79,6 +82,7 @@ export abstract class Ward {
     sizeChaos:  number,
     emptyProb = 0.04,
     split      = true,
+    rng:        () => number = Math.random,
     _depth     = 0,
   ): Polygon[] {
     if (p.length < 3 || _depth > 24) return p.length >= 3 ? [p] : []
@@ -92,20 +96,20 @@ export abstract class Ward {
     })
 
     const spread = 0.8 * gridChaos
-    const ratio  = (1 - spread) / 2 + Math.random() * spread
+    const ratio  = (1 - spread) / 2 + rng() * spread
     const angleSpread = Math.PI / 6 * gridChaos * (Math.abs(polySquare(p)) < minSq * 4 ? 0 : 1)
-    const angle  = (Math.random() - 0.5) * angleSpread
+    const angle  = (rng() - 0.5) * angleSpread
 
     const halves = bisect(p, v, ratio, angle, split ? ALLEY : 0)
 
     const buildings: Polygon[] = []
     for (const half of halves) {
       const sq = Math.abs(polySquare(half))
-      if (sq < minSq * Math.pow(2, 4 * sizeChaos * (Math.random() - 0.5))) {
-        if (Math.random() >= emptyProb) buildings.push(half)
+      if (sq < minSq * Math.pow(2, 4 * sizeChaos * (rng() - 0.5))) {
+        if (rng() >= emptyProb) buildings.push(half)
       } else {
-        const subSplit = sq > minSq / (Math.random() * Math.random())
-        buildings.push(...Ward.createAlleys(half, minSq, gridChaos, sizeChaos, emptyProb, subSplit, _depth + 1))
+        const subSplit = sq > minSq / (rng() * rng())
+        buildings.push(...Ward.createAlleys(half, minSq, gridChaos, sizeChaos, emptyProb, subSplit, rng, _depth + 1))
       }
     }
     return buildings

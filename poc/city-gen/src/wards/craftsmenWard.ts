@@ -5,10 +5,15 @@ import type { Model } from '../model/model'
 import type { Patch } from '../model/patch'
 
 export class CraftsmenWard extends CommonWard {
-  minSq     = 10 + Math.random() * 80   // 10 – 90
-  gridChaos = 0.5 + Math.random() * 0.2  // 0.5 – 0.7
+  minSq     = 0
+  gridChaos = 0
   sizeChaos = 0.6
   name      = 'Craftsmen'
-  constructor(model: Model, patch: Patch) { super(model, patch) }
+  constructor(model: Model, patch: Patch) {
+    super(model, patch)
+    const r = () => this.rng.float()
+    this.minSq     = 10 + 80 * r() * r()   // squared → biased small
+    this.gridChaos = 0.5 + 0.2 * r()
+  }
   override getLabel() { return 'Craftsmen' }
 }

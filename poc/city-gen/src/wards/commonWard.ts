@@ -22,7 +22,8 @@ export abstract class CommonWard extends Ward {
       block = clipped
     }
 
-    this.geometry = Ward.createAlleys(block, this.minSq, this.gridChaos, this.sizeChaos, this.emptyProb)
+    const rng = () => this.rng.float()
+    this.geometry = Ward.createAlleys(block, this.minSq, this.gridChaos, this.sizeChaos, this.emptyProb, true, rng)
   }
 
   // Subclasses can call this to randomize params at construction time
@@ -31,8 +32,9 @@ export abstract class CommonWard extends Ward {
     chaosMin: number, chaosRange: number,
     sizeChaosFix: number,
   ): void {
-    this.minSq     = minSqMin  + Math.random() * minSqRange
-    this.gridChaos = chaosMin  + Math.random() * chaosRange
+    const r = () => this.rng.float()
+    this.minSq     = minSqMin  + r() * r() * minSqRange
+    this.gridChaos = chaosMin  + r() * chaosRange
     this.sizeChaos = sizeChaosFix
   }
 }

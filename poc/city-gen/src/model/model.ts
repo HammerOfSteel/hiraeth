@@ -11,7 +11,7 @@ import { createWard } from '../wards/index'
 
 // ─── Seeded PRNG ─────────────────────────────────────────────────────────────
 
-function makePrng(seed: number) {
+export function makePrng(seed: number) {
   let s = seed >>> 0
   return {
     float(): number {
@@ -32,7 +32,7 @@ function makePrng(seed: number) {
   }
 }
 
-type Prng = ReturnType<typeof makePrng>
+export type Prng = ReturnType<typeof makePrng>
 
 // Ward rotation list matching Haxe Model.WARDS array
 const WARD_ROTATION: string[] = [
@@ -71,7 +71,7 @@ export class Model {
   streets:    Street[] = []
   roads:      Street[] = []
 
-  private _rng: Prng  // eslint-disable-line @typescript-eslint/no-unused-vars
+  rng: Prng
   private _topology!: Topology
 
   private _plazaNeeded:   boolean
@@ -80,7 +80,7 @@ export class Model {
 
   constructor(params: ModelParams) {
     this.params  = params
-    this._rng    = makePrng(params.seed)
+    this.rng     = makePrng(params.seed)
     this.patches = []
     this.inner   = []
 
@@ -105,7 +105,7 @@ export class Model {
   // ─── Pipeline steps ─────────────────────────────────────────────────────────
 
   private _buildPatches(): void {
-    const rng = this._rng
+    const rng = this.rng
     const sa  = rng.float() * 2 * Math.PI
     const points: Pt[] = []
     for (let i = 0; i < this.params.nPatches * 8; i++) {
@@ -292,7 +292,7 @@ export class Model {
   }
 
   private _createWards(): void {
-    const rng = this._rng
+    const rng = this.rng
     const unassigned = [...this.inner]
 
     // Assign plaza

@@ -5,11 +5,16 @@ import type { Model } from '../model/model'
 import type { Patch } from '../model/patch'
 
 export class MerchantWard extends CommonWard {
-  minSq     = 50 + Math.random() * 60   // 50 – 110
-  gridChaos = 0.3 + Math.random() * 0.2  // 0.3 – 0.5
+  minSq     = 0
+  gridChaos = 0
   sizeChaos = 0.7
   emptyProb = 0.15
   name      = 'Merchant'
-  constructor(model: Model, patch: Patch) { super(model, patch) }
+  constructor(model: Model, patch: Patch) {
+    super(model, patch)
+    const r = () => this.rng.float()
+    this.minSq     = 50 + 60 * r() * r()
+    this.gridChaos = 0.5 + 0.3 * r()
+  }
   override getLabel() { return 'Merchants' }
 }

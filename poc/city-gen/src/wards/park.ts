@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
 // Port of com.watabou.towngenerator.wards.Park
-import { Ward } from './ward'
-import { polyCentroid, polyShrinkEq } from '../geom/polygon'
-import { radial } from '../model/cutter'
-import { ALLEY } from './ward'
+import { Ward, ALLEY } from './ward'
+import { polyCompactness } from '../geom/polygon'
+import { radial, semiRadial } from '../model/cutter'
 import type { Model } from '../model/model'
 import type { Patch } from '../model/patch'
 
@@ -16,12 +15,10 @@ export class Park extends Ward {
     this.geometry = []
     const block = this.getCityBlock()
     if (block.length < 3) return
-    // Radial sectors with gaps — filled with "greenery" (rendered as park by renderer)
-    const center  = polyCentroid(block)
-    const sectors = radial(block, center, ALLEY)
-    // Keep only sectors with reasonable area (~1/4 of block)
-    const fill = 0.5
-    this.geometry = sectors.filter(() => Math.random() < fill).map(s => polyShrinkEq(s, ALLEY / 2))
+    // Original: radial if compact, semiRadial if elongated
+    this.geometry = polyCompactness(block) >= 0.7
+      ? radial(block, null, ALLEY)
+      : semiRadial(block, null, ALLEY)
   }
 
   override getLabel() { return 'Park' }
