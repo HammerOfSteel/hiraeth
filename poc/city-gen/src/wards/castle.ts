@@ -1,46 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0
 // Port of com.watabou.towngenerator.wards.Castle
-import { Ward, ALLEY, MAIN_STREET } from './ward'
-import { polyCentroid, polyShrinkEq, polySquare } from '../geom/polygon'
-import { semiRadial } from '../model/cutter'
+import { Ward, MAIN_STREET } from './ward'
+import { polyShrinkEq, polySquare } from '../geom/polygon'
 import { CurtainWall } from '../model/curtainWall'
 import type { Model } from '../model/model'
 import type { Patch } from '../model/patch'
-
-const KEEP_MIN_SQ = 50
 
 export class Castle extends Ward {
   wall!: CurtainWall
   name  = 'Castle'
 
-  constructor(model: Model, patch: Patch) { super(model, patch) }
+  constructor(model: Model, patch: Patch) {
+    super(model, patch)
+    // Build the castle's own inner curtain wall.
+    // Reserved = vertices that border non-city patches (open to fields)
+    const reserved = patch.shape.filter(v =>
+      model.patchByVertex(v).some(p => !p.withinCity)
+    )
+    this.wall = new CurtainWall(true, model, [patch], reserved)
+    this.wall.buildTowers()
+  }
 
   override createGeometry(): void {
     this.geometry = []
-    const shape = this.patch.shape
-
-    // Inner curtain wall around citadel
-    this.wall = new CurtainWall(true, this.model, [this.patch], [])
-    this.wall.buildTowers()
-
-    const center    = polyCentroid(shape)
-    const courtyard = semiRadial(shape, center, ALLEY)
-
-    let maxSq = -1, keepIdx = -1
-    for (let i = 0; i < courtyard.length; i++) {
-      const sq = Math.abs(polySquare(courtyard[i]))
-      if (sq > maxSq) { maxSq = sq; keepIdx = i }
-    }
-
-    for (let i = 0; i < courtyard.length; i++) {
-      const s  = courtyard[i]
-      const sq = Math.abs(polySquare(s))
-      if (i === keepIdx && sq >= KEEP_MIN_SQ) {
-        this.geometry.push(polyShrinkEq(s, MAIN_STREET / 2))
-      } else if (sq >= KEEP_MIN_SQ / 4) {
-        this.geometry.push(polyShrinkEq(s, ALLEY / 2))
-      }
-    }
+    const block = polyShrinkEq(this.patch.shape, MAIN_STREET * 2)
+    if (block.length < 3) return
+    const sq = Math.abs(polySquare(block))
+    this.geometry = Ward.createOrthoBuilding(block, Math.sqrt(sq) * 4, 0.6, () => this.rng.float())
   }
 
   override getLabel() { return 'Castle' }

@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 // Port of com.watabou.towngenerator.wards.Cathedral
-import { Ward, ALLEY, MAIN_STREET } from './ward'
-import { polyCentroid, polyShrinkEq, polySquare } from '../geom/polygon'
-import { radial } from '../model/cutter'
+import { Ward } from './ward'
+import { ring } from '../model/cutter'
 import type { Model } from '../model/model'
 import type { Patch } from '../model/patch'
 
@@ -14,26 +13,11 @@ export class Cathedral extends Ward {
     this.geometry = []
     const block = this.getCityBlock()
     if (block.length < 3) return
-
-    const center  = polyCentroid(block)
-    const sectors = radial(block, center, ALLEY)
-
-    // Largest sector = main body; rest = outbuildings / chapels
-    let maxSq = -1, mainIdx = 0
-    for (let i = 0; i < sectors.length; i++) {
-      const sq = Math.abs(polySquare(sectors[i]))
-      if (sq > maxSq) { maxSq = sq; mainIdx = i }
-    }
-
-    for (let i = 0; i < sectors.length; i++) {
-      const s  = sectors[i]
-      const sq = Math.abs(polySquare(s))
-      if (i === mainIdx) {
-        this.geometry.push(polyShrinkEq(s, MAIN_STREET / 4))
-      } else if (sq > maxSq * 0.25) {
-        this.geometry.push(polyShrinkEq(s, ALLEY / 2))
-      }
-    }
+    const r = () => this.rng.float()
+    // 40% ring of chapels; 60% orthogonal keep
+    this.geometry = r() < 0.4
+      ? ring(block, 2 + r() * 4)
+      : Ward.createOrthoBuilding(block, 50, 0.8, r)
   }
 
   override getLabel() { return 'Cathedral' }

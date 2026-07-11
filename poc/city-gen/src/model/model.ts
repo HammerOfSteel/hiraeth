@@ -166,7 +166,7 @@ export class Model {
         const v0 = w.shape[index]
         const v1 = w.shape[(index + 1) % w.shape.length]
         if (v0 !== v1 && Pt.distance(v0, v1) < THRESHOLD) {
-          for (const w1 of this._patchByVertex(v1)) {
+          for (const w1 of this.patchByVertex(v1)) {
             if (w1 !== w) {
               w1.shape[w1.shape.indexOf(v1)] = v0
               toClear.push(w1)
@@ -303,7 +303,7 @@ export class Model {
 
     // Assign gate wards
     for (const gate of this.border.gates) {
-      for (const patch of this._patchByVertex(gate)) {
+      for (const patch of this.patchByVertex(gate)) {
         if (patch.withinCity && patch.ward == null && rng.bool(this.wall == null ? 0.2 : 0.5)) {
           patch.ward = createWard('Gate', this, patch)
           unassigned.splice(unassigned.indexOf(patch), 1)
@@ -354,7 +354,7 @@ export class Model {
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-  _patchByVertex(v: Pt): Patch[] {
+  patchByVertex(v: Pt): Patch[] {
     return this.patches.filter(p => p.shape.includes(v))
   }
 
