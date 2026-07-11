@@ -1,7 +1,8 @@
 import { create } from 'zustand'
+import type { CityJSON } from '@/city/types'
 
 export type WeatherState = 'clear' | 'overcast' | 'rain'
-export type ViewMode = 'world' | 'asset'
+export type ViewMode = 'world' | 'asset' | 'city'
 
 export type BuildingType =
   | 'cottage'
@@ -16,14 +17,16 @@ export type BuildingType =
   | 'apartment'
 
 export interface SceneStore {
-  timeOfDay: number          // 0–24
+  timeOfDay: number
   weather: WeatherState
   viewMode: ViewMode
   selectedAsset: BuildingType
+  cityData: CityJSON | null
   setTime: (t: number) => void
   setWeather: (w: WeatherState) => void
   setViewMode: (v: ViewMode) => void
   setSelectedAsset: (a: BuildingType) => void
+  setCityData: (d: CityJSON | null) => void
 }
 
 export const useSceneStore = create<SceneStore>((set) => ({
@@ -31,10 +34,12 @@ export const useSceneStore = create<SceneStore>((set) => ({
   weather: 'clear',
   viewMode: 'world',
   selectedAsset: 'cottage',
+  cityData: null,
   setTime: (t) => set({ timeOfDay: t }),
   setWeather: (w) => set({ weather: w }),
   setViewMode: (v) => set({ viewMode: v }),
   setSelectedAsset: (a) => set({ selectedAsset: a }),
+  setCityData: (d) => set({ cityData: d, viewMode: d ? 'city' : 'world' }),
 }))
 
 /** Derived helpers — call outside React for Three.js use */

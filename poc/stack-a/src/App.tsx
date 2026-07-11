@@ -2,6 +2,7 @@ import { Canvas } from '@react-three/fiber'
 import { EffectComposer, Bloom, Vignette, DepthOfField } from '@react-three/postprocessing'
 import { useSceneStore } from '@/store/scene'
 import { WorldScene, AssetScene } from '@/scene/Scenes'
+import { CityScene } from '@/city/CityScene'
 import { Sidebar } from '@/ui/Sidebar'
 
 export default function App() {
@@ -17,7 +18,9 @@ export default function App() {
           camera={{ fov: 35, near: 0.5, far: 800, position: [80, 60, 80] }}
           gl={{ antialias: true, powerPreference: 'high-performance' }}
         >
-          {viewMode === 'world' ? <WorldScene /> : <AssetScene />}
+          {viewMode === 'city'  ? <CityScene /> :
+           viewMode === 'world' ? <WorldScene /> :
+                                  <AssetScene />}
 
           <EffectComposer>
             <DepthOfField
