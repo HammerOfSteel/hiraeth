@@ -495,7 +495,8 @@ function subdivideRect(
   if (w * h <= minArea || depth > 5) return [[x0, y0, x1, y1]]
 
   const spread = 0.75 * chaos
-  const ratio  = (1 - spread) / 2 + rng() * spread   // near 0.5 when ordered, wilder when chaotic
+  // Clamp ratio to [0.22, 0.78] — prevents extreme slivers even at max chaos
+  const ratio  = Math.max(0.22, Math.min(0.78, (1 - spread) / 2 + rng() * spread))
   const splitH = h >= w                                // split along longest dimension
 
   if (splitH) {
@@ -552,7 +553,11 @@ function organicCoreLots(
 
     // ── Inner triangle → single central lot (plaza / market square) ────────
     if (poly.length === 3) {
-      const shrink = 0.28 + lotShrink * 0.4
+      // Skip triangles that are too small to hold a visible lot
+      const [a, b, c] = poly
+      const triArea = Math.abs((b.x-a.x)*(c.y-a.y) - (c.x-a.x)*(b.y-a.y)) / 2
+      if (triArea < 80) continue
+      const shrink = 0.30 + lotShrink * 0.4
       const sc = poly.map(p => ({
         x: cx + (p.x - cx) * (1 - shrink),
         y: cy + (p.y - cy) * (1 - shrink),
@@ -570,10 +575,17 @@ function organicCoreLots(
     const chaos    = Math.min(1, 0.10 + (ringIdx / Math.max(1, numRings)) * 0.80)
     const shrinkUV = UV_INSET * 0.40 + lotShrink * UV_INSET * 0.35
 
+    // World-space block size → derive a minArea in UV space so all lots stay
+    // in a consistent world-unit range regardless of block size.
+    // Target: minimum lot ~65 world units², maximum ~450 world units².
+    const bW = (v2.dist(p00, p10) + v2.dist(p01, p11)) / 2
+    const bH = (v2.dist(p00, p01) + v2.dist(p10, p11)) / 2
+    const worldBlockArea = Math.max(bW * bH, 100)
+    const minLotUV = Math.min(0.22, Math.max(0.025, 65 / worldBlockArea))
+
     const rects = subdivideRect(
       UV_INSET, UV_INSET, 1 - UV_INSET, 1 - UV_INSET,
-      0.032,    // minArea in UV² — gives ~4–8 lots per block
-      chaos, rng,
+      minLotUV, chaos, rng,
     )
 
     for (const [u0, v0, u1, v1] of rects) {
@@ -806,9 +818,11 @@ export function generateWorld(params: GenParams): GeneratedWorld {
   })
 
   // 9a. Organic core block lots — fill the radial+ring polygon blocks
+  //     Also check the 4 polygon corners to catch bilinear-quad edge overlaps.
   for (const lot of organicCoreLots(coreBlocks, numRings, params.lotShrink, costMap, ms, rng)) {
     const c    = centroid(lot.polygon)
-    const keys = [lotKey(c), lotKey({x:c.x+CELL,y:c.y}), lotKey({x:c.x-CELL,y:c.y}), lotKey({x:c.x,y:c.y+CELL}), lotKey({x:c.x,y:c.y-CELL})]
+    const checkPts = [c, ...lot.polygon]
+    const keys = checkPts.flatMap(p => [lotKey(p), lotKey({x:p.x+CELL,y:p.y}), lotKey({x:p.x-CELL,y:p.y}), lotKey({x:p.x,y:p.y+CELL}), lotKey({x:p.x,y:p.y-CELL})])
     if (keys.some(k => occupied.has(k))) continue
     lots.push(lot)
     const xs = lot.polygon.map(p=>p.x), ys = lot.polygon.map(p=>p.y)
