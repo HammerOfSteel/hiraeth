@@ -1,9 +1,10 @@
 import './index.css'
+import { MapView } from './ui/MapView'
 
 export default function App() {
   return (
-    <div className="w-full h-full flex items-center justify-center bg-stone-900 text-stone-400 font-mono text-sm">
-      city-gen — loading…
+    <div className="w-screen h-screen overflow-hidden">
+      <MapView />
     </div>
   )
 }
