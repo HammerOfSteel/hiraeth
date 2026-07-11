@@ -363,6 +363,24 @@ function generateRoadLots(
 // ─── Town Core ────────────────────────────────────────────────────────────────
 
 /**
+ * Non-uniform grid line positions (Watabou spiral inspiration):
+ * Returns (2n+1) sorted positions centred at 0.
+ * Inner spacings are ~70% of base; outer spacings are ~130%.
+ * This replicates Watabou's sqrt(i) spiral: dense urban core, sparser outskirts.
+ */
+function coreGridPositions(n: number, baseSpacing: number): number[] {
+  const pos = new Array<number>(2 * n + 1)
+  pos[n] = 0
+  for (let i = 1; i <= n; i++) {
+    const scale = 0.70 + (i / n) * 0.60   // 0.70 → 1.30 as we move outward
+    const step  = baseSpacing * scale
+    pos[n + i] = pos[n + i - 1] + step
+    pos[n - i] = pos[n - i + 1] - step
+  }
+  return pos
+}
+
+/**
  * Find the point on the highway closest to the map centre.
  * This becomes the "hub" — the town centre seed all arterials converge on.
  */
@@ -400,27 +418,31 @@ function generateCoreGrid(
   const bx = { x: Math.cos(hwAngle), y: Math.sin(hwAngle) }    // along highway
   const by = { x: -Math.sin(hwAngle), y: Math.cos(hwAngle) }   // perpendicular
 
+  // Variable grid-line positions: denser at centre, sparser at edges.
+  const xPos = coreGridPositions(n, spacing)
+  const yPos = coreGridPositions(n, spacing)
+
   // Build a grid of slightly jittered intersection nodes in the rotated frame.
   // Edge nodes stay fixed so the block boundary is clean.
   const dim = 2*n + 1
   const nodes: Vec2[] = []
-  for (let r = -n; r <= n; r++) {
-    for (let c = -n; c <= n; c++) {
-      const isEdge = r === -n || r === n || c === -n || c === n
+  for (let r = 0; r <= 2*n; r++) {
+    for (let c = 0; c <= 2*n; c++) {
+      const isEdge = r === 0 || r === 2*n || c === 0 || c === 2*n
       const jx = isEdge ? 0 : (rng()-0.5) * JITTER
       const jy = isEdge ? 0 : (rng()-0.5) * JITTER
-      const lx = c * spacing + jx, ly = r * spacing + jy
-      nodes[(r+n)*dim + (c+n)] = {
+      const lx = xPos[c] + jx, ly = yPos[r] + jy
+      nodes[r*dim + c] = {
         x: center.x + lx * bx.x + ly * by.x,
         y: center.y + lx * bx.y + ly * by.y,
       }
     }
   }
 
-  const at = (r: number, c: number) => nodes[(r+n)*dim + (c+n)]
+  const at = (r: number, c: number) => nodes[r*dim + c]
 
-  for (let r = -n; r <= n; r++) {
-    for (let c = -n; c < n; c++) {
+  for (let r = 0; r <= 2*n; r++) {
+    for (let c = 0; c < 2*n; c++) {
       const a = at(r, c), b = at(r, c+1)
       if (Math.abs(a.x) > halfMap || Math.abs(b.x) > halfMap) continue
       if (Math.abs(a.y) > halfMap || Math.abs(b.y) > halfMap) continue
@@ -429,8 +451,8 @@ function generateCoreGrid(
     }
   }
 
-  for (let c = -n; c <= n; c++) {
-    for (let r = -n; r < n; r++) {
+  for (let c = 0; c <= 2*n; c++) {
+    for (let r = 0; r < 2*n; r++) {
       const a = at(r, c), b = at(r+1, c)
       if (Math.abs(a.x) > halfMap || Math.abs(b.x) > halfMap) continue
       if (Math.abs(a.y) > halfMap || Math.abs(b.y) > halfMap) continue
@@ -495,8 +517,6 @@ function coreBlockLots(
   const lots    = [] as Lot[]
   const halfMap = ms / 2 - 4
   const inset   = 5.5
-  const inner   = spacing - 2 * inset
-  if (inner < 6) return lots
 
   const bx = { x: Math.cos(hwAngle), y: Math.sin(hwAngle) }
   const by = { x: -Math.sin(hwAngle), y: Math.cos(hwAngle) }
@@ -505,19 +525,31 @@ function coreBlockLots(
     y: center.y + lx * bx.y + ly * by.y,
   })
 
-  for (let br = -n; br < n; br++) {
-    for (let bc = -n; bc < n; bc++) {
-      const x0 = bc * spacing + inset, y0 = br * spacing + inset
-      const bCW = toWorld(x0 + inner*0.5, y0 + inner*0.5)
+  // Use the same non-uniform grid positions as generateCoreGrid so lots fit their blocks.
+  const xPos = coreGridPositions(n, spacing)
+  const yPos = coreGridPositions(n, spacing)
+
+  for (let bi = 0; bi < 2*n; bi++) {      // row index in 0-based grid
+    for (let bj = 0; bj < 2*n; bj++) {   // col index
+      const gx0 = xPos[bj],   gx1 = xPos[bj + 1]
+      const gy0 = yPos[bi],   gy1 = yPos[bi + 1]
+      const blockW = gx1 - gx0, blockH = gy1 - gy0
+      const inner  = Math.min(blockW, blockH) - 2 * inset
+      if (inner < 6) continue
+
+      const x0 = gx0 + inset, y0 = gy0 + inset
+      const x1 = gx0 + blockW - inset, y1 = gy0 + blockH - inset
+
+      const bCW = toWorld((gx0+gx1)/2, (gy0+gy1)/2)
       if (costAt(bCW, costMap, ms) > 50) continue
 
-      // chaos grows with distance from centre (Watabou: slums at edge, market at core)
+      // chaos: ordered civic core → organic suburban edge
+      const br = bi - n, bc = bj - n
       const blockDist = Math.sqrt(br*br + bc*bc) / Math.max(1, n)
       const chaos     = Math.min(1, 0.15 + blockDist * 0.75)
 
-      // min lot area = ~30% of spacing², stops infinite recursion on tiny blocks
-      const minLotArea = Math.pow(spacing * 0.28, 2)
-      const rects = subdivideRect(x0, y0, x0 + inner, y0 + inner, minLotArea, chaos, rng)
+      const minLotArea = Math.pow(Math.min(blockW, blockH) * 0.28, 2)
+      const rects = subdivideRect(x0, y0, x1, y1, minLotArea, chaos, rng)
 
       for (const [rx0, ry0, rx1, ry1] of rects) {
         const rw = rx1 - rx0, rh = ry1 - ry0
@@ -534,7 +566,7 @@ function coreBlockLots(
             toWorld(rx1-m, ry1-m),
             toWorld(rx0+m, ry1-m),
           ],
-          blockId: (br + n) * (2*n) + (bc + n),
+          blockId: bi * (2*n) + bj,
           type:    'residential',
         })
       }
